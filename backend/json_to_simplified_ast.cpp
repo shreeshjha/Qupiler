@@ -1,12 +1,13 @@
-#This is just an initilization of json to simplified ast tool
-
 #include <iostream>
 #include <stdio.h>
 #include <string>
 #include <optional>
 #include <variant>
 #include <vector>
+#include <stdexcept>
 #include "./json.hpp"
+
+using json = nlohmann::json;
 
 class ASTNode {
 public: 
@@ -213,6 +214,90 @@ class InstanceBody{
   {}
 };
 
+class Root {
+public:
+    std::string kind;
+    std::vector<std:variant<CompilationUnit, Instance>> members;
+    std::optional<std::string> name=std::nullopt;
+    std::optional<int> addr=std::nullopt;
+    
+    Root(const std::string& k, const std::vector<std::variant<CompilationUnit, Instance>>& m, const std::optional<std::string>& n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), members(m), name(n), addr(a) 
+{}
+};
+
+class Variable {
+public:
+
+    std::string kind;
+    std::string type;
+    std::string lifetime;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+    
+    Variable(const std::string& k, const std::string& t, const std::string &l, const std::optional<std::string>& n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), type(t), lifetime(l), name(n), addr(a) 
+{}
+};
+
+
+class ExpressionStatement {
+public:
+    std::string kind;
+    std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>> expr;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    ExpressionStatement(const std::string &k, const std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>>& e, const std::optional<std::string>& n = std::nullopt, const std::optional<int> &a = std::nullopt) : kind(k), expr(e), name(n), addr(a)
+{}
+};
+
+class Block {
+public:
+    std::string kind;
+    std::string blockKind;
+    std::vector<std::variant<Expression>> body;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    Block(const std::string &k, const std::string &bk, const std::vector<std::variant<Expression>> &b, const std::optional<std::string> &n = std::nullopt, const optional<int> &a = std::nullopt) : kind(k), blockKind(bk), body(b), name(n), addr(a) 
+{}
+};
+
+class ProceduralBlock {
+public:
+    std::string kind;
+    Block body;
+    std::string procedureKind;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    ProceduralBlock(const std::string& k, const Block& b, const std::string& pk, const std::optional<std::string>& n = std::nullopt, 
+                    const std::optional<int>& a = std::nullopt) : kind(k), body(b), procedureKind(pk), name(n), addr(a)
+{}
+};
+
+// Helper function to convert a json array to a vector of ASTNode pointers
+std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr);
+// Main conversion function
+
+std::unique_ptr<ASTNode> from_dict(const json& data) {
+    if(data.is_array()) {
+        throw std::runtime_error("Expected object but got array");
+    }
+
+    if(!data.is_object()) {
+        return nullptr;
+    }
+
+
+    std::string kind = data.value("kind", "");
+   
+    std::optional<std::string> name = (data.contains("name") 
+    && !data["name"].is_null()) ? std::make_optional(data["name"].get<std::string>()) : std::nullopt;
+    
+    std::optional<int> addr = (data.contains("addr") && !data["addr"].is_null()) ? std::make_optional(data["addr"].get<int>()) : std::nullopt;
+
+    // Dispatch on the "kind" field
+}
 
 
 int main() {
