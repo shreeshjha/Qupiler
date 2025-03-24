@@ -36,19 +36,6 @@ class NamedValue{
 class BinaryOp;
 class Conversion;
 
-class Assignment {
-public: 
-    std::string kind;
-    std::string type;   
-    NamedValue left;
-    std::variant<NamedValue, BinaryOp, Conversion> right;
-    bool isNonBlocking;
-    std::optional<std::string> name = std::nullopt;
-    std::optional<int> addr = std::nullopt;
-    
-    Assignment(const std::string& k, const std::string& t, const NamedValue& l, const std::variant<NamedValue, BinaryOp, Conversion>& r, bool nonBlocking, const std::optional<std::string> &n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), type(t), left(l), right(r), isNonBlocking(nonBlocking), name(n), addr(a) {}
-};
-
 class BinaryOp{
 public:
     std::string kind;
@@ -59,9 +46,51 @@ public:
     std::optional<std::string> name=std::nullopt;
     std::optional<int> addr=std::nullopt;
     
-    BinaryOp(const std::string& k,const std::string &t,const std::string& o,std::variant<NamedValue,std::unqiue_ptr<BinaryOp>> l,std::variant<NamedValue,std::unique_ptr<BinaryOp>> r, const std::optional<std::string> &n=std::nullopt,const std::optional<int> &a=std::nullopt) : kind(k), type(t), op(o), left(std::move(l)), right(std::move(r)), name(n), addr(a)
+    BinaryOp(const std::string& k,const std::string &t,const std::string& o,std::variant<NamedValue,std::unique_ptr<BinaryOp>> l,std::variant<NamedValue,std::unique_ptr<BinaryOp>> r, const std::optional<std::string> &n=std::nullopt,const std::optional<int> &a=std::nullopt) : kind(k), type(t), op(o), left(std::move(l)), right(std::move(r)), name(n), addr(a)
 
 {}
+};
+
+class IntegerLiteral{
+  public:
+    std::string kind;
+    std::string type;
+    std::string value;
+    std::string constant;
+    std::optional<std::string> name=std::nullopt;
+    std::optional<int> addr=std::nullopt;
+
+    IntegerLiteral(const std::string& k, const std::string& t, const std::string& v,const std::string& c,const std::optional<std::string>& n=std::nullopt, const std::optional<int> &a=std::nullopt)
+  : kind(k), type(t), value(v), constant(c), name(n), addr(a)
+    {}
+};
+
+
+class Conversion{
+  public:
+    std::string kind;
+    std::string type;
+    std::variant<std::unique_ptr<Conversion>, NamedValue, IntegerLiteral> operand;
+    std::optional<std::string> constant=std::nullopt;
+    std::optional<std::string> name=std::nullopt;
+    std::optional<int> addr=std::nullopt;
+
+    Conversion(const std::string& k, const std::string& t,std::variant<std::unique_ptr<Conversion>, NamedValue, IntegerLiteral> op, const std::optional<std::string>& c=std::nullopt, const std::optional<std::string> &n=std::nullopt, const std::optional<int> &a=std::nullopt)
+  : kind(k), type(t), operand(std::move(op)), constant(c), name(n), addr(a)
+{}
+}; 
+
+class Assignment {
+public: 
+    std::string kind;
+    std::string type;   
+    NamedValue left;
+    std::variant<NamedValue, BinaryOp, Conversion> right;
+    bool isNonBlocking;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+    
+    Assignment(const std::string& k, const std::string& t, const NamedValue& l, std::variant<NamedValue, BinaryOp, Conversion>& r, bool nonBlocking, const std::optional<std::string> &n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), type(t), left(l), right(std::move(r)), isNonBlocking(nonBlocking), name(n), addr(a) {}
 };
 
 class UnaryOp{
@@ -98,53 +127,9 @@ class ContinuousAssign{
     std::optional<std::string> name=std::nullopt;
     std::optional<int> addr=std::nullopt;
 
-    ContinuousAssign(const std::string &k,const Assignment& assign, const std::optional<std::string> &n=std::nullopt, const std::optional<int> &a=std::nullopt)
-  : kind(k), assignment(assign), name(n), addr(a)
+    ContinuousAssign(const std::string &k,Assignment& assign, const std::optional<std::string> &n=std::nullopt, const std::optional<int> &a=std::nullopt)
+  : kind(k), assignment(std::move(assign)), name(n), addr(a)
     {}
-};
-
-
-class IntegerLiteral{
-  public:
-    std::string kind;
-    std::string type;
-    std::string value;
-    std::string constant;
-    std::optiona<std::string> name=std::nullopt;
-    std::optional<int> addr=std::nullopt;
-
-    IntegerLiteral(const std::string& k, const std::string& t, const std::string& v,const std::string& c,const std::optional<std::string>& n=std::nullopt, const std::optional<int> &a=std::nullopt)
-  : kind(k), type(t), value(v), constant(c), name(n), addr(a)
-    {}
-};
-
-class Conversion{
-  public:
-    std::string kind;
-    std::string type;
-    std::variant<std::unique_ptr<Conversion>, NamedValue, IntegerLiteral> operand;
-    std::optional<std::string> constant=std::nullopt;
-    std::optional<std::string> name=std::nullopt;
-    std::optional<int> addr=std::nullopt;
-
-    Conversion(const std::string& k, const std::string& t,std::variant<std::unique_ptr<Conversion>, NamedValue, IntegerLiteral> op, const std::optional<std::string>& c=std::nullopt, const std::optional<std::string> &n=std::nullopt, const std::optional<int> &a=std::nullopt)
-  : kind(k), type(t), operand(std::move(op)), constant(c), name(n), addr(a)
-{}
-}; 
-
-
-class InstanceBody;
-
-class Instance{
-  public:
-    std::string kind;
-    InstanceBody body;
-    std::optional<std::string> name=std::nullopt;
-    std::optional<int> addr=std::nullopt;
-
-    Instance(const std::string &k, const InstanceBody& b, const std::optional<std::string>& n=std::nullopt, const std::optional<int> &a=std::nullopt)
-  : kind(k), body(b), name(n), addr(a)
-{}
 };
 
 
@@ -161,6 +146,8 @@ class Port{
     : kind(k), type(t), direction(t), internalSymbol(internalSym) , name(n), addr(a)
     {}
 };
+
+
 class PrimitiveInstance{
   public:
     std::string kind;
@@ -170,12 +157,64 @@ class PrimitiveInstance{
     std::optional<int> addr=std::nullopt;
 
     PrimitiveInstance(const std::string& k, const std::string& pt,const std::vector<std::variant<Assignment,NamedValue>> &p, const std::optional<std::string> &n=std::nullopt, const std::optional<int> &a=std::nullopt)
-    : kind(k), primitiveType(pt), ports(p), name(n)l addr(a)
+    : kind(k), primitiveType(pt), ports(p), name(n), addr(a)
     {}
 };
+
+
 class Variable;
-class ContinuousAssign;
+class Variable {
+public:
+
+    std::string kind;
+    std::string type;
+    std::string lifetime;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+    
+    Variable(const std::string& k, const std::string& t, const std::string &l, const std::optional<std::string>& n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), type(t), lifetime(l), name(n), addr(a) 
+{}
+};
+
+class ExpressionStatement {
+public:
+    std::string kind;
+    std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>> expr;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    ExpressionStatement(const std::string &k, const std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>>& e, const std::optional<std::string>& n = std::nullopt, const std::optional<int> &a = std::nullopt) : kind(k), expr(e), name(n), addr(a)
+{}
+};
+
+
+class Block {
+public:
+    std::string kind;
+    std::string blockKind;
+    std::vector<std::variant<ExpressionStatement>> body;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    Block(const std::string &k, const std::string &bk, const std::vector<std::variant<ExpressionStatement>> &b, const std::optional<std::string> &n = std::nullopt, const std::optional<int> &a = std::nullopt) : kind(k), blockKind(bk), body(b), name(n), addr(a) 
+{}
+};
+
+
+
 class ProceduralBlock;
+class ProceduralBlock {
+public:
+    std::string kind;
+    Block body;
+    std::string procedureKind;
+    std::optional<std::string> name = std::nullopt;
+    std::optional<int> addr = std::nullopt;
+
+    ProceduralBlock(const std::string& k, const Block& b, const std::string& pk, const std::optional<std::string>& n = std::nullopt, 
+                    const std::optional<int>& a = std::nullopt) : kind(k), body(b), procedureKind(pk), name(n), addr(a)
+{}
+};
 
 class NetType{
   public:
@@ -184,7 +223,7 @@ class NetType{
     std::optional<std::string> name=std::nullopt;
     std::optional<int> addr=std::nullopt;
 
-    NetType(const std::string& k,const std::string& t, const std::optional<std::string>& n=std:nullopt, const std::optional<int> &a=std::nullopt)
+    NetType(const std::string& k,const std::string& t, const std::optional<std::string>& n=std::nullopt, const std::optional<int> &a=std::nullopt)
             : kind(k), type(t), name(n), addr(a)
     {}
 };
@@ -196,10 +235,13 @@ class Net{
     std::optional<std::string> name=std::nullopt;
     std::optional<int> addr=std::nullopt;
 
-    Net(const std::strin& k,const std::string& t,const NetType& nt, const std::optiona<std::string> &n = std::nullopt, const std::optional<int> &a=std::nullopt)
+    Net(const std::string& k,const std::string& t,const NetType& nt, const std::optional<std::string> &n = std::nullopt, const std::optional<int> &a=std::nullopt)
     : kind(k), type(t), netType(nt), name(n), addr(a)
     {}
 };
+
+
+class InstanceBody;
 
 class InstanceBody{
   public:
@@ -214,10 +256,27 @@ class InstanceBody{
   {}
 };
 
+class Instance{
+  public:
+    std::string kind;
+    InstanceBody body;
+    std::optional<std::string> name=std::nullopt;
+    std::optional<int> addr=std::nullopt;
+
+    Instance(const std::string &k, const InstanceBody& b, const std::optional<std::string>& n=std::nullopt, const std::optional<int> &a=std::nullopt)
+  : kind(k), body(b), name(n), addr(a)
+{}
+};
+
+
+class ContinuousAssign;
+
+
+
 class Root {
 public:
     std::string kind;
-    std::vector<std:variant<CompilationUnit, Instance>> members;
+    std::vector<std::variant<CompilationUnit, Instance>> members;
     std::optional<std::string> name=std::nullopt;
     std::optional<int> addr=std::nullopt;
     
@@ -225,55 +284,6 @@ public:
 {}
 };
 
-class Variable {
-public:
-
-    std::string kind;
-    std::string type;
-    std::string lifetime;
-    std::optional<std::string> name = std::nullopt;
-    std::optional<int> addr = std::nullopt;
-    
-    Variable(const std::string& k, const std::string& t, const std::string &l, const std::optional<std::string>& n = std::nullopt, const std::optional<int>& a = std::nullopt) : kind(k), type(t), lifetime(l), name(n), addr(a) 
-{}
-};
-
-
-class ExpressionStatement {
-public:
-    std::string kind;
-    std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>> expr;
-    std::optional<std::string> name = std::nullopt;
-    std::optional<int> addr = std::nullopt;
-
-    ExpressionStatement(const std::string &k, const std::vector<std::variant<Assignment, BinaryOp, UnaryOp, NamedValue, Conversion>>& e, const std::optional<std::string>& n = std::nullopt, const std::optional<int> &a = std::nullopt) : kind(k), expr(e), name(n), addr(a)
-{}
-};
-
-class Block {
-public:
-    std::string kind;
-    std::string blockKind;
-    std::vector<std::variant<Expression>> body;
-    std::optional<std::string> name = std::nullopt;
-    std::optional<int> addr = std::nullopt;
-
-    Block(const std::string &k, const std::string &bk, const std::vector<std::variant<Expression>> &b, const std::optional<std::string> &n = std::nullopt, const optional<int> &a = std::nullopt) : kind(k), blockKind(bk), body(b), name(n), addr(a) 
-{}
-};
-
-class ProceduralBlock {
-public:
-    std::string kind;
-    Block body;
-    std::string procedureKind;
-    std::optional<std::string> name = std::nullopt;
-    std::optional<int> addr = std::nullopt;
-
-    ProceduralBlock(const std::string& k, const Block& b, const std::string& pk, const std::optional<std::string>& n = std::nullopt, 
-                    const std::optional<int>& a = std::nullopt) : kind(k), body(b), procedureKind(pk), name(n), addr(a)
-{}
-};
 
 // Helper function to convert a json array to a vector of ASTNode pointers
 std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr);
@@ -302,7 +312,7 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
       bool isNonBlocking=data.at("isNonBlocking").get<bool>();
       // Recursive calls to convert left/right
       auto left=from_dict(data.at("left"));
-      auto right=from_doct(data.at("right"));
+      auto right=from_dict(data.at("right"));
       //Construct an Assignment
       return std::make_unique<Assignment>(kind,type,std::move(left),isNonBlocking,name,addr);
     } 
