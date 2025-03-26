@@ -684,9 +684,184 @@ public:
     }
 };
 
+class CallExpr : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> args;
+
+    CallExpr(const std::string& k,
+             std::vector<std::unique_ptr<ASTNode>> a,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a_ = std::nullopt)
+        : ASTNode(k, n, a_), args(std::move(a)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["args"] = json::array();
+        for (const auto& arg : args)
+            j["args"].push_back(arg->to_dict());
+        return j;
+    }
+};
+
+class DeclRefExpr : public ASTNode {
+public:
+    std::string ref;
+
+    DeclRefExpr(const std::string& k,
+                const std::string& r,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), ref(r) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["ref"] = ref;
+        return j;
+    }
+};
+
+class ForStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> init, cond, inc, body;
+
+    ForStmt(const std::string& k,
+            std::unique_ptr<ASTNode> i,
+            std::unique_ptr<ASTNode> c,
+            std::unique_ptr<ASTNode> in,
+            std::unique_ptr<ASTNode> b,
+            const std::optional<std::string>& n = std::nullopt,
+            const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a),
+          init(std::move(i)), cond(std::move(c)), inc(std::move(in)), body(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["init"] = init->to_dict();
+        j["cond"] = cond->to_dict();
+        j["inc"] = inc->to_dict();
+        j["body"] = body->to_dict();
+        return j;
+    }
+};
+
+class WhileStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> cond;
+    std::unique_ptr<ASTNode> body;
+
+    WhileStmt(const std::string& k,
+              std::unique_ptr<ASTNode> c,
+              std::unique_ptr<ASTNode> b,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), cond(std::move(c)), body(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["cond"] = cond->to_dict();
+        j["body"] = body->to_dict();
+        return j;
+    }
+};
+
+class DoStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> body;
+    std::unique_ptr<ASTNode> cond;
+
+    DoStmt(const std::string& k,
+           std::unique_ptr<ASTNode> b,
+           std::unique_ptr<ASTNode> c,
+           const std::optional<std::string>& n = std::nullopt,
+           const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), body(std::move(b)), cond(std::move(c)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["body"] = body->to_dict();
+        j["cond"] = cond->to_dict();
+        return j;
+    }
+};
+
+class BreakStmt : public ASTNode {
+public:
+    BreakStmt(const std::string& k,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a) {}
+
+    json to_dict() const override {
+        return ASTNode::to_dict();
+    }
+};
+
+class ContinueStmt : public ASTNode {
+public:
+    ContinueStmt(const std::string& k,
+                 const std::optional<std::string>& n = std::nullopt,
+                 const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a) {}
+
+    json to_dict() const override {
+        return ASTNode::to_dict();
+    }
+};
+
+class ImplicitCastExpr : public ASTNode {
+public:
+    std::string castType;
+    std::unique_ptr<ASTNode> subExpr;
+
+    ImplicitCastExpr(const std::string& k,
+                     const std::string& t,
+                     std::unique_ptr<ASTNode> s,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), castType(t), subExpr(std::move(s)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["castType"] = castType;
+        j["subExpr"] = subExpr->to_dict();
+        return j;
+    }
+};
 
 
+class ParenExpr : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> expr;
 
+    ParenExpr(const std::string& k,
+              std::unique_ptr<ASTNode> e,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), expr(std::move(e)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["expr"] = expr->to_dict();
+        return j;
+    }
+};
+
+class StringLiteral : public ASTNode {
+public:
+    std::string value;
+
+    StringLiteral(const std::string& k,
+                  const std::string& v,
+                  const std::optional<std::string>& n = std::nullopt,
+                  const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(v) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value;
+        return j;
+    }
+};
 
 
 // Helper function to convert a json array to a vector of ASTNode pointers
@@ -891,8 +1066,60 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
       auto right = from_dict(data["inner"][1]);
       return std::make_unique<BinaryOp>("BinaryOp", type, op, std::move(left), std::move(right), name, addr);
     }
+    
+    else if (kind == "CallExpr") {
+        auto args = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<CallExpr>(kind, std::move(args), name, addr);
+    }
 
+    else if (kind == "DeclRefExpr") {
+        std::string ref = data.value("referencedDecl", "unknown");
+        return std::make_unique<DeclRefExpr>(kind, ref, name, addr);
+    }
+    
+    else if (kind == "ForStmt") {
+        auto init = from_dict(data["inner"][0]);
+        auto cond = from_dict(data["inner"][1]);
+        auto inc = from_dict(data["inner"][2]);
+        auto body = from_dict(data["inner"][3]);
+        return std::make_unique<ForStmt>(kind, std::move(init), std::move(cond), std::move(inc), std::move(body), name, addr);
+    }
 
+    else if (kind == "WhileStmt") {
+        auto cond = from_dict(data["inner"][0]);
+        auto body = from_dict(data["inner"][1]);
+        return std::make_unique<WhileStmt>(kind, std::move(cond), std::move(body), name, addr);
+    }
+
+    else if (kind == "DoStmt") {
+        auto body = from_dict(data["inner"][0]);
+        auto cond = from_dict(data["inner"][1]);
+        return std::make_unique<DoStmt>(kind, std::move(body), std::move(cond), name, addr);
+    }
+
+    else if (kind == "BreakStmt") {
+        return std::make_unique<BreakStmt>(kind, name, addr);
+    }
+
+    else if (kind == "ContinueStmt") {
+        return std::make_unique<ContinueStmt>(kind, name, addr);
+    }
+
+    else if (kind == "ImplicitCastExpr") {
+        std::string type = data.value("type", "");
+        auto inner = from_dict(data["inner"][0]);
+        return std::make_unique<ImplicitCastExpr>(kind, type, std::move(inner), name, addr);
+    }
+
+    else if (kind == "ParenExpr") {
+        auto inner = from_dict(data["inner"][0]);
+        return std::make_unique<ParenExpr>(kind, std::move(inner), name, addr);
+    }
+
+    else if (kind == "StringLiteral") {
+        std::string value = data.value("value", "");
+        return std::make_unique<StringLiteral>(kind, value, name, addr);
+    }
 
 
 
