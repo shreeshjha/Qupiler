@@ -1057,6 +1057,190 @@ public:
     }
 };
 
+class ConditionalOperator : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> cond;
+    std::unique_ptr<ASTNode> trueExpr;
+    std::unique_ptr<ASTNode> falseExpr;
+
+    ConditionalOperator(const std::string& k,
+                        std::unique_ptr<ASTNode> c,
+                        std::unique_ptr<ASTNode> t,
+                        std::unique_ptr<ASTNode> f,
+                        const std::optional<std::string>& n = std::nullopt,
+                        const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), cond(std::move(c)), trueExpr(std::move(t)), falseExpr(std::move(f)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["cond"] = cond->to_dict();
+        j["trueExpr"] = trueExpr->to_dict();
+        j["falseExpr"] = falseExpr->to_dict();
+        return j;
+    }
+};
+
+class SwitchStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> cond;
+    std::vector<std::unique_ptr<ASTNode>> body;
+
+    SwitchStmt(const std::string& k,
+               std::unique_ptr<ASTNode> c,
+               std::vector<std::unique_ptr<ASTNode>> b,
+               const std::optional<std::string>& n = std::nullopt,
+               const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), cond(std::move(c)), body(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["cond"] = cond->to_dict();
+        j["body"] = json::array();
+        for (const auto& stmt : body)
+            j["body"].push_back(stmt->to_dict());
+        return j;
+    }
+};
+
+class CaseStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> value;
+    std::unique_ptr<ASTNode> sub;
+
+    CaseStmt(const std::string& k,
+             std::unique_ptr<ASTNode> v,
+             std::unique_ptr<ASTNode> s,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(std::move(v)), sub(std::move(s)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value->to_dict();
+        j["sub"] = sub->to_dict();
+        return j;
+    }
+};
+
+class DefaultStmt : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> sub;
+
+    DefaultStmt(const std::string& k,
+                std::unique_ptr<ASTNode> s,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), sub(std::move(s)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["sub"] = sub->to_dict();
+        return j;
+    }
+};
+
+
+class ReturnVoidStmt : public ASTNode {
+public:
+    ReturnVoidStmt(const std::string& k,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a) {}
+
+    json to_dict() const override {
+        return ASTNode::to_dict();
+    }
+};
+
+class ContinueWithLabelStmt : public ASTNode {
+public:
+    std::string label;
+
+    ContinueWithLabelStmt(const std::string& k,
+                          const std::string& l,
+                          const std::optional<std::string>& n = std::nullopt,
+                          const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), label(l) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["label"] = label;
+        return j;
+    }
+};
+
+class TypedefDecl : public ASTNode {
+public:
+    std::string underlyingType;
+
+    TypedefDecl(const std::string& k,
+                const std::string& ut,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), underlyingType(ut) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["underlyingType"] = underlyingType;
+        return j;
+    }
+};
+
+class EnumDecl : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> enumerators;
+
+    EnumDecl(const std::string& k,
+             std::vector<std::unique_ptr<ASTNode>> e,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), enumerators(std::move(e)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["enumerators"] = json::array();
+        for (const auto& e : enumerators)
+            j["enumerators"].push_back(e->to_dict());
+        return j;
+    }
+};
+
+class EnumConstantDecl : public ASTNode {
+public:
+    std::string value;
+
+    EnumConstantDecl(const std::string& k,
+                     const std::string& v,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(v) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value;
+        return j;
+    }
+};
+
+class PredefinedExpr : public ASTNode {
+public:
+    std::string text;
+
+    PredefinedExpr(const std::string& k,
+                   const std::string& t,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), text(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["text"] = text;
+        return j;
+    }
+};
+
+
+
 
 // Helper function to convert a json array to a vector of ASTNode pointers
 std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr);
@@ -1370,11 +1554,62 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
       return std::make_unique<GotoStmt>(kind, label, name, addr);
     }
 
+    else if (kind == "ConditionalOperator") {
+        auto cond = from_dict(data["inner"][0]);
+        auto trueExpr = from_dict(data["inner"][1]);
+        auto falseExpr = from_dict(data["inner"][2]);
+        return std::make_unique<ConditionalOperator>(kind, std::move(cond), std::move(trueExpr), std::move(falseExpr), name, addr);
+    }
 
+    else if (kind == "SwitchStmt") {
+        auto cond = from_dict(data["inner"][0]);
+        std::vector<std::unique_ptr<ASTNode>> body;
+        for (size_t i = 1; i < data["inner"].size(); ++i)
+            body.push_back(from_dict(data["inner"][i]));
+        return std::make_unique<SwitchStmt>(kind, std::move(cond), std::move(body), name, addr);
+    }
 
+    
+    else if (kind == "CaseStmt") {
+        auto value = from_dict(data["inner"][0]);
+        auto sub = from_dict(data["inner"][1]);
+        return std::make_unique<CaseStmt>(kind, std::move(value), std::move(sub), name, addr);
+    }
 
+    else if (kind == "DefaultStmt") {
+        auto sub = from_dict(data["inner"][0]);
+        return std::make_unique<DefaultStmt>(kind, std::move(sub), name, addr);
+    }
+    
+    else if (kind == "ReturnVoidStmt") {
+        return std::make_unique<ReturnVoidStmt>(kind, name, addr);
+    }
 
-  
+    else if (kind == "ContinueWithLabelStmt") {
+        std::string label = data.value("label", "");
+        return std::make_unique<ContinueWithLabelStmt>(kind, label, name, addr);
+    }
+
+    else if (kind == "TypedefDecl") {
+        std::string underlyingType = data.value("type", "");
+        return std::make_unique<TypedefDecl>(kind, underlyingType, name, addr);
+    }
+    
+    else if (kind == "EnumDecl") {
+        auto enumerators = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<EnumDecl>(kind, std::move(enumerators), name, addr);
+    }
+    
+    else if (kind == "EnumConstantDecl") {
+        std::string value = data.value("value", "0");
+        return std::make_unique<EnumConstantDecl>(kind, value, name, addr);
+    }
+
+    else if (kind == "PredefinedExpr") {
+        std::string text = data.value("text", "");
+        return std::make_unique<PredefinedExpr>(kind, text, name, addr);
+    }
+
     else{
       throw std::runtime_error("Unknown kind: " + kind);
     }
