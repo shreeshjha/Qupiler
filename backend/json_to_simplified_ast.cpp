@@ -863,6 +863,200 @@ public:
     }
 };
 
+class ArraySubscriptExpr : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> base;
+    std::unique_ptr<ASTNode> index;
+
+    ArraySubscriptExpr(const std::string& k,
+                       std::unique_ptr<ASTNode> b,
+                       std::unique_ptr<ASTNode> i,
+                       const std::optional<std::string>& n = std::nullopt,
+                       const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), base(std::move(b)), index(std::move(i)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["base"] = base->to_dict();
+        j["index"] = index->to_dict();
+        return j;
+    }
+};
+
+
+class CharacterLiteral : public ASTNode {
+public:
+    std::string value;
+
+    CharacterLiteral(const std::string& k,
+                     const std::string& v,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(v) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value;
+        return j;
+    }
+};
+
+
+class FloatingLiteral : public ASTNode {
+public:
+    std::string value;
+
+    FloatingLiteral(const std::string& k,
+                    const std::string& v,
+                    const std::optional<std::string>& n = std::nullopt,
+                    const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(v) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value;
+        return j;
+    }
+};
+
+
+class ClangUnaryOperator : public ASTNode {
+public:
+    std::string op;
+    std::unique_ptr<ASTNode> operand;
+
+    ClangUnaryOperator(const std::string& k,
+                       const std::string& o,
+                       std::unique_ptr<ASTNode> oper,
+                       const std::optional<std::string>& n = std::nullopt,
+                       const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), op(o), operand(std::move(oper)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["op"] = op;
+        j["operand"] = operand->to_dict();
+        return j;
+    }
+};
+
+
+class CastExpr : public ASTNode {
+public:
+    std::string castKind;
+    std::unique_ptr<ASTNode> subExpr;
+
+    CastExpr(const std::string& k,
+             const std::string& ck,
+             std::unique_ptr<ASTNode> sub,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), castKind(ck), subExpr(std::move(sub)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["castKind"] = castKind;
+        j["subExpr"] = subExpr->to_dict();
+        return j;
+    }
+};
+
+
+class InitListExpr : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> inits;
+
+    InitListExpr(const std::string& k,
+                 std::vector<std::unique_ptr<ASTNode>> i,
+                 const std::optional<std::string>& n = std::nullopt,
+                 const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), inits(std::move(i)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["inits"] = json::array();
+        for (const auto& i : inits)
+            j["inits"].push_back(i->to_dict());
+        return j;
+    }
+};
+
+
+class CompoundAssignOperator : public ASTNode {
+public:
+    std::string op;
+    std::unique_ptr<ASTNode> lhs;
+    std::unique_ptr<ASTNode> rhs;
+
+    CompoundAssignOperator(const std::string& k,
+                           const std::string& o,
+                           std::unique_ptr<ASTNode> l,
+                           std::unique_ptr<ASTNode> r,
+                           const std::optional<std::string>& n = std::nullopt,
+                           const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), op(o), lhs(std::move(l)), rhs(std::move(r)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["op"] = op;
+        j["lhs"] = lhs->to_dict();
+        j["rhs"] = rhs->to_dict();
+        return j;
+    }
+};
+
+
+class NullStmt : public ASTNode {
+public:
+    NullStmt(const std::string& k,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a) {}
+
+    json to_dict() const override {
+        return ASTNode::to_dict();
+    }
+};
+
+
+class LabelStmt : public ASTNode {
+public:
+    std::string label;
+    std::unique_ptr<ASTNode> sub;
+
+    LabelStmt(const std::string& k,
+              const std::string& l,
+              std::unique_ptr<ASTNode> s,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), label(l), sub(std::move(s)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["label"] = label;
+        j["sub"] = sub->to_dict();
+        return j;
+    }
+};
+
+
+class GotoStmt : public ASTNode {
+public:
+    std::string label;
+
+    GotoStmt(const std::string& k,
+             const std::string& l,
+             const std::optional<std::string>& n = std::nullopt,
+             const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), label(l) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["label"] = label;
+        return j;
+    }
+};
+
 
 // Helper function to convert a json array to a vector of ASTNode pointers
 std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr);
@@ -1121,9 +1315,66 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
         return std::make_unique<StringLiteral>(kind, value, name, addr);
     }
 
+    else if (kind == "ArraySubscriptExpr") {
+      auto base = from_dict(data["inner"][0]);
+      auto index = from_dict(data["inner"][1]);
+      return std::make_unique<ArraySubscriptExpr>(kind, std::move(base), std::move(index), name, addr);
+    }
+
+    else if (kind == "CharacterLiteral") {
+      std::string value = data.value("value", "");
+      return std::make_unique<CharacterLiteral>(kind, value, name, addr);
+    }
+
+    else if (kind == "FloatingLiteral") {
+      std::string value = data.value("value", "");
+      return std::make_unique<FloatingLiteral>(kind, value, name, addr);
+    }
+    
+    else if (kind == "UnaryOperator") {
+      std::string op = data.value("opcode", "");
+      auto operand = from_dict(data["inner"][0]);
+      return std::make_unique<ClangUnaryOperator>(kind, op, std::move(operand), name, addr);
+    }
+  
+    else if (kind == "CastExpr") {
+      std::string castKind = data.value("castKind", "");
+      auto subExpr = from_dict(data["inner"][0]);
+      return std::make_unique<CastExpr>(kind, castKind, std::move(subExpr), name, addr);
+    }
+    
+    else if (kind == "InitListExpr") {
+      auto inits = from_dict_list(data.value("inner", json::array()));
+      return std::make_unique<InitListExpr>(kind, std::move(inits), name, addr);
+    }
+
+    else if (kind == "CompoundAssignOperator") {
+      std::string op = data.value("opcode", "");
+      auto lhs = from_dict(data["inner"][0]);
+      auto rhs = from_dict(data["inner"][1]);
+      return std::make_unique<CompoundAssignOperator>(kind, op, std::move(lhs), std::move(rhs), name, addr);
+    } 
+
+    else if (kind == "NullStmt") {
+      return std::make_unique<NullStmt>(kind, name, addr);
+    }
+
+    else if (kind == "LabelStmt") {
+      std::string label = data.value("name", "");
+      auto sub = from_dict(data["inner"][0]);
+      return std::make_unique<LabelStmt>(kind, label, std::move(sub), name, addr);
+    }
+
+    else if (kind == "GotoStmt") {
+      std::string label = data.value("label", "");
+      return std::make_unique<GotoStmt>(kind, label, name, addr);
+    }
 
 
 
+
+
+  
     else{
       throw std::runtime_error("Unknown kind: " + kind);
     }
