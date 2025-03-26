@@ -808,13 +808,27 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
         return nullptr;
     }
 
+    // Safely get a string value from JSON, handling cases where it might be an object
+    auto safe_get_string = [](const json& j, const std::string& key, const std::string& default_val) -> std::string {
+        if (!j.contains(key)) {
+            return default_val;
+        }
+        const auto& value = j[key];
+        if (value.is_string()) {
+            return value.get<std::string>();
+        }
+        // If it's not a string, return the default
+        return default_val;
+    };
 
-    std::string kind = data.value("kind", "");
+    std::string kind = safe_get_string(data, "kind", "");
    
     std::optional<std::string> name = (data.contains("name") 
-    && !data["name"].is_null()) ? std::make_optional(data["name"].get<std::string>()) : std::nullopt;
+        && !data["name"].is_null() 
+        && data["name"].is_string()) ? std::make_optional(data["name"].get<std::string>()) : std::nullopt;
     
-    std::optional<int> addr = (data.contains("addr") && !data["addr"].is_null()) ? std::make_optional(data["addr"].get<int>()) : std::nullopt;
+    std::optional<int> addr = (data.contains("addr") && !data["addr"].is_null() && data["addr"].is_number()) 
+        ? std::make_optional(data["addr"].get<int>()) : std::nullopt;
 
       
     if (kind == "List"){
@@ -829,18 +843,18 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "FunctionDecl") {
-     std::string retType = data.value("type", "");
+     std::string retType = safe_get_string(data, "type", "");
      auto inner = from_dict_list(data.value("inner", json::array()));
       return std::make_unique<FunctionDecl>(kind, retType, std::move(inner), name, addr);
     }
     
     else if (kind == "ParmVarDecl") {
-      std::string type = data.value("type", "");
+      std::string type = safe_get_string(data, "type", "");
       return std::make_unique<ParmVarDecl>(kind, type, name, addr);
     }
 
     else if (kind == "VarDecl") {
-      std::string type = data.value("type", "");
+      std::string type = safe_get_string(data, "type", "");
       return std::make_unique<VarDecl>(kind, type, name, addr);
     }
 
@@ -872,8 +886,8 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "BinaryOperator") {
-      std::string type = data.value("type", "");
-      std::string op = data.value("opcode", "unknown");
+      std::string type = safe_get_string(data, "type", "");
+      std::string op = safe_get_string(data, "opcode", "unknown");
       auto left = from_dict(data["inner"][0]);
       auto right = from_dict(data["inner"][1]);
       return std::make_unique<BinaryOp>("BinaryOp", type, op, std::move(left), std::move(right), name, addr);
@@ -885,7 +899,7 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "DeclRefExpr") {
-        std::string ref = data.value("referencedDecl", "unknown");
+        std::string ref = safe_get_string(data, "referencedDecl", "unknown");
         return std::make_unique<DeclRefExpr>(kind, ref, name, addr);
     }
     
@@ -918,7 +932,7 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "ImplicitCastExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         auto inner = from_dict(data["inner"][0]);
         return std::make_unique<ImplicitCastExpr>(kind, type, std::move(inner), name, addr);
     }
@@ -929,7 +943,7 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "StringLiteral") {
-        std::string value = data.value("value", "");
+        std::string value = safe_get_string(data, "value", "");
         return std::make_unique<StringLiteral>(kind, value, name, addr);
     }
 
@@ -940,23 +954,23 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "CharacterLiteral") {
-      std::string value = data.value("value", "");
+      std::string value = safe_get_string(data, "value", "");
       return std::make_unique<CharacterLiteral>(kind, value, name, addr);
     }
 
     else if (kind == "FloatingLiteral") {
-      std::string value = data.value("value", "");
+      std::string value = safe_get_string(data, "value", "");
       return std::make_unique<FloatingLiteral>(kind, value, name, addr);
     }
     
     else if (kind == "UnaryOperator") {
-      std::string op = data.value("opcode", "");
+      std::string op = safe_get_string(data, "opcode", "");
       auto operand = from_dict(data["inner"][0]);
       return std::make_unique<ClangUnaryOperator>(kind, op, std::move(operand), name, addr);
     }
   
     else if (kind == "CastExpr") {
-      std::string castKind = data.value("castKind", "");
+      std::string castKind = safe_get_string(data, "castKind", "");
       auto subExpr = from_dict(data["inner"][0]);
       return std::make_unique<CastExpr>(kind, castKind, std::move(subExpr), name, addr);
     }
@@ -967,7 +981,7 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "CompoundAssignOperator") {
-      std::string op = data.value("opcode", "");
+      std::string op = safe_get_string(data, "opcode", "");
       auto lhs = from_dict(data["inner"][0]);
       auto rhs = from_dict(data["inner"][1]);
       return std::make_unique<CompoundAssignOperator>(kind, op, std::move(lhs), std::move(rhs), name, addr);
@@ -978,13 +992,13 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "LabelStmt") {
-      std::string label = data.value("name", "");
+      std::string label = safe_get_string(data, "name", "");
       auto sub = from_dict(data["inner"][0]);
       return std::make_unique<LabelStmt>(kind, label, std::move(sub), name, addr);
     }
 
     else if (kind == "GotoStmt") {
-      std::string label = data.value("label", "");
+      std::string label = safe_get_string(data, "label", "");
       return std::make_unique<GotoStmt>(kind, label, name, addr);
     }
 
@@ -1020,12 +1034,12 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
 
     else if (kind == "ContinueWithLabelStmt") {
-        std::string label = data.value("label", "");
+        std::string label = safe_get_string(data, "label", "");
         return std::make_unique<ContinueWithLabelStmt>(kind, label, name, addr);
     }
 
     else if (kind == "TypedefDecl") {
-        std::string underlyingType = data.value("type", "");
+        std::string underlyingType = safe_get_string(data, "type", "");
         return std::make_unique<TypedefDecl>(kind, underlyingType, name, addr);
     }
     
@@ -1035,12 +1049,12 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
     
     else if (kind == "EnumConstantDecl") {
-        std::string value = data.value("value", "0");
+        std::string value = safe_get_string(data, "value", "0");
         return std::make_unique<EnumConstantDecl>(kind, value, name, addr);
     }
 
     else if (kind == "PredefinedExpr") {
-        std::string text = data.value("text", "");
+        std::string text = safe_get_string(data, "text", "");
         return std::make_unique<PredefinedExpr>(kind, text, name, addr);
     }
 
@@ -1048,7 +1062,6 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
       throw std::runtime_error("Unknown kind: " + kind);
     }
 }
-
 // Helper that converts a JSON array to a vector of ASTNode pointers
 std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr) {
     std::vector<std::unique_ptr<ASTNode>> nodes;
