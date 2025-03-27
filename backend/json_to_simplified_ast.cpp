@@ -1156,6 +1156,47 @@ public:
     }
 };
 
+class RecordDecl : public ASTNode {
+public:
+    std::string recordType;  // e.g., "struct" or "union"
+    std::vector<std::unique_ptr<ASTNode>> fields;
+
+    RecordDecl(const std::string& k,
+               const std::string& rt,
+               std::vector<std::unique_ptr<ASTNode>> f,
+               const std::optional<std::string>& n = std::nullopt,
+               const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), recordType(rt), fields(std::move(f)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["recordType"] = recordType;
+        j["fields"] = json::array();
+        for (const auto& f : fields)
+            j["fields"].push_back(f->to_dict());
+        return j;
+    }
+};
+
+class FieldDecl : public ASTNode {
+public:
+    std::string type;
+
+    FieldDecl(const std::string& k,
+              const std::string& t,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        return j;
+    }
+};
+
+
+
 
 // Helper function to convert a json array to a vector of ASTNode pointers
 std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr);
@@ -1421,18 +1462,18 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
     
     else if (kind == "CStyleCastExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         auto subExpr = from_dict(data["inner"][0]);
         return std::make_unique<CStyleCastExpr>(kind, type, std::move(subExpr), name, addr);
     }
 
     else if (kind == "NullPointerLiteralExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         return std::make_unique<NullPointerLiteralExpr>(kind, type, name, addr);
     }
 
     else if (kind == "CompoundLiteralExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         auto initializer = from_dict(data["inner"][0]);
         return std::make_unique<CompoundLiteralExpr>(kind, type, std::move(initializer), name, addr);
     }
@@ -1449,54 +1490,54 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
 
     else if (kind == "StaticAssertDecl") {
         auto cond = from_dict(data["inner"][0]);
-        std::string msg = data.value("message", "");
+        std::string msg = safe_get_string(data, "message", "");
         return std::make_unique<StaticAssertDecl>(kind, std::move(cond), msg, name, addr);
     }
 
     else if (kind == "OffsetOfExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         return std::make_unique<OffsetOfExpr>(kind, type, name, addr);
     }
     
     else if (kind == "SizeOfPackExpr") {
-        std::string id = data.value("name", "");
+        std::string id = safe_get_string(data, "name", "");
         return std::make_unique<SizeOfPackExpr>(kind, id, name, addr);
     }
     
     else if (kind == "VAArgExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         auto expr = from_dict(data["inner"][0]);
         return std::make_unique<VAArgExpr>(kind, type, std::move(expr), name, addr);
     }
     
     else if (kind == "TypeTraitExpr") {
-        std::string trait = data.value("trait", "");
+        std::string trait = safe_get_string(data, "trait", "");
         return std::make_unique<TypeTraitExpr>(kind, trait, name, addr);
     }
 
     else if (kind == "AlignOfExpr") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         return std::make_unique<AlignOfExpr>(kind, type, name, addr);
     }
 
     else if (kind == "UnaryExprOrTypeTraitExpr") {
-        std::string exprType = data.value("type", "");
+        std::string exprType = safe_get_string(data, "type", ""); 
         return std::make_unique<UnaryExprOrTypeTraitExpr>(kind, exprType, name, addr);
     }
     
     else if (kind == "MemberExpr") {
-        std::string memberName = data.value("name", "");
+        std::string memberName = safe_get_string(data, "name", "");
         auto base = from_dict(data["inner"][0]);
         return std::make_unique<MemberExpr>(kind, memberName, std::move(base), name, addr);
     }
     
     else if (kind == "Designator") {
-        std::string field = data.value("name", "");
+        std::string field = safe_get_string(data, "name", "");
         return std::make_unique<Designator>(kind, field, name, addr);
     }
     
     else if (kind == "AsmStmt") {
-        std::string s = data.value("asmString", "");
+        std::string s = safe_get_string(data, "asmString", "");
         return std::make_unique<AsmStmt>(kind, s, name, addr);
     }
     
@@ -1516,14 +1557,27 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     }
     
     else if (kind == "FunctionProtoType") {
-        std::string type = data.value("type", "");
+        std::string type = safe_get_string(data, "type", "");
         return std::make_unique<FunctionProtoType>(kind, type, name, addr);
     }
     
     else if (kind == "PointerType") {
-        std::string pointee = data.value("type", "");
+        std::string pointee = safe_get_string(data, "type", "");
         return std::make_unique<PointerType>(kind, pointee, name, addr);
     }
+
+    else if (kind == "RecordDecl") {
+      std::string recordType = safe_get_string(data, "tagUsed", "struct");
+      auto fields = from_dict_list(data.value("inner", json::array()));
+      return std::make_unique<RecordDecl>(kind, recordType, std::move(fields), name, addr);
+    }
+
+    else if (kind == "FieldDecl") {
+      std::string type = safe_get_string(data, "type", "");
+      return std::make_unique<FieldDecl>(kind, type, name, addr);
+    }
+
+
 
     else{
       throw std::runtime_error("Unknown kind: " + kind);
