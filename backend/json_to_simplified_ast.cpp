@@ -1754,7 +1754,7 @@ std::vector<std::unique_ptr<ASTNode>> from_dict_list(const json& arr) {
 }
 
 
-
+#ifndef SIMPLIFIED_AST_IMPLEMENTATION
 int main(int argc, char* argv[]) {
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <input_json> <output_json>\n";
@@ -1784,6 +1784,5 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-
-
+#endif
 
