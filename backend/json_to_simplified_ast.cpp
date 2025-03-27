@@ -1195,7 +1195,132 @@ public:
     }
 };
 
+class AvailabilityAttr : public ASTNode {
+public:
+    std::string platform;
 
+    AvailabilityAttr(const std::string& k,
+                     const std::string& p,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), platform(p) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["platform"] = platform;
+        return j;
+    }
+};
+
+class BuiltinAttr : public ASTNode {
+public:
+    std::string builtin;
+
+    BuiltinAttr(const std::string& k,
+                const std::string& b,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), builtin(b) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["builtin"] = builtin;
+        return j;
+    }
+};
+
+class FormatAttr : public ASTNode {
+public:
+    std::string formatKind;
+
+    FormatAttr(const std::string& k,
+               const std::string& f,
+               const std::optional<std::string>& n = std::nullopt,
+               const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), formatKind(f) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["formatKind"] = formatKind;
+        return j;
+    }
+};
+
+class AsmLabelAttr : public ASTNode {
+public:
+    std::string label;
+
+    AsmLabelAttr(const std::string& k,
+                 const std::string& lbl,
+                 const std::optional<std::string>& n = std::nullopt,
+                 const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), label(lbl) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["label"] = label;
+        return j;
+    }
+};
+
+class GenericAttr : public ASTNode {
+public:
+    json contents;
+
+    GenericAttr(const std::string& k,
+                const json& c,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), contents(c) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        for (auto& [key, val] : contents.items()) {
+            if (key != "kind" && key != "name" && key != "addr") {
+                j[key] = val;
+            }
+        }
+        return j;
+    }
+};
+
+
+class DeprecatedAttr : public ASTNode {
+public:
+    std::string message;
+
+    DeprecatedAttr(const std::string& k,
+                   const std::string& msg,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), message(msg) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["message"] = message;
+        return j;
+    }
+};
+
+class IntegerLiteral : public ASTNode {
+public:
+    std::string value;
+    std::string type;
+
+    IntegerLiteral(const std::string& k,
+                   const std::string& v,
+                   const std::string& t,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(v), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value;
+        j["type"] = type;
+        return j;
+    }
+};
 
 
 // Helper function to convert a json array to a vector of ASTNode pointers
@@ -1575,6 +1700,41 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     else if (kind == "FieldDecl") {
       std::string type = safe_get_string(data, "type", "");
       return std::make_unique<FieldDecl>(kind, type, name, addr);
+    }
+    
+    else if (kind == "AvailabilityAttr") {
+      std::string platform = safe_get_string(data, "platform", "unknown");
+      return std::make_unique<AvailabilityAttr>(kind, platform, name, addr);
+    }
+  
+    else if (kind == "BuiltinAttr") {
+      std::string builtin = safe_get_string(data, "builtin", "true");
+      return std::make_unique<BuiltinAttr>(kind, builtin, name, addr);
+    }
+    
+    else if (kind == "FormatAttr") {
+      std::string fmt = safe_get_string(data, "type", "format");
+      return std::make_unique<FormatAttr>(kind, fmt, name, addr);
+    }
+
+    else if (kind == "AsmLabelAttr") {
+      std::string label = safe_get_string(data, "label", "");
+      return std::make_unique<AsmLabelAttr>(kind, label, name, addr);
+    }
+    
+    else if (kind == "DeprecatedAttr") {
+      std::string msg = safe_get_string(data, "message", "");
+      return std::make_unique<DeprecatedAttr>(kind, msg, name, addr);
+    }
+    
+    else if (kind.size() >= 4 && kind.substr(kind.size() - 4) == "Attr"){
+      return std::make_unique<GenericAttr>(kind, data, name, addr);
+    }
+    
+    else if (kind == "IntegerLiteral") {
+      std::string value = safe_get_string(data, "value", "0");
+      std::string type = safe_get_string(data, "type", "");
+      return std::make_unique<IntegerLiteral>(kind, value, type, name, addr);
     }
 
 
