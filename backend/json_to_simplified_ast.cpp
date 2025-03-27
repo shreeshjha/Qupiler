@@ -792,7 +792,369 @@ public:
     }
 };
 
+class CStyleCastExpr : public ASTNode {
+public:
+    std::string castType;
+    std::unique_ptr<ASTNode> subExpr;
 
+    CStyleCastExpr(const std::string& k,
+                   const std::string& t,
+                   std::unique_ptr<ASTNode> s,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), castType(t), subExpr(std::move(s)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["castType"] = castType;
+        j["subExpr"] = subExpr->to_dict();
+        return j;
+    }
+};
+
+
+class NullPointerLiteralExpr : public ASTNode {
+public:
+    std::string type;
+
+    NullPointerLiteralExpr(const std::string& k,
+                           const std::string& t,
+                           const std::optional<std::string>& n = std::nullopt,
+                           const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        return j;
+    }
+};
+
+class CompoundLiteralExpr : public ASTNode {
+public:
+    std::string type;
+    std::unique_ptr<ASTNode> initializer;
+
+    CompoundLiteralExpr(const std::string& k,
+                        const std::string& t,
+                        std::unique_ptr<ASTNode> i,
+                        const std::optional<std::string>& n = std::nullopt,
+                        const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t), initializer(std::move(i)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        j["initializer"] = initializer->to_dict();
+        return j;
+    }
+};
+
+class DesignatedInitExpr : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> initList;
+
+    DesignatedInitExpr(const std::string& k,
+                       std::vector<std::unique_ptr<ASTNode>> inits,
+                       const std::optional<std::string>& n = std::nullopt,
+                       const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), initList(std::move(inits)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["inits"] = json::array();
+        for (const auto& i : initList)
+            j["inits"].push_back(i->to_dict());
+        return j;
+    }
+};
+
+class GenericSelectionExpr : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> inner;
+
+    GenericSelectionExpr(const std::string& k,
+                         std::vector<std::unique_ptr<ASTNode>> i,
+                         const std::optional<std::string>& n = std::nullopt,
+                         const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), inner(std::move(i)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["inner"] = json::array();
+        for (const auto& node : inner)
+            j["inner"].push_back(node->to_dict());
+        return j;
+    }
+};
+
+class StaticAssertDecl : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> condition;
+    std::string message;
+
+    StaticAssertDecl(const std::string& k,
+                     std::unique_ptr<ASTNode> cond,
+                     const std::string& msg,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), condition(std::move(cond)), message(msg) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["condition"] = condition->to_dict();
+        j["message"] = message;
+        return j;
+    }
+};
+
+class OffsetOfExpr : public ASTNode {
+public:
+    std::string type;
+
+    OffsetOfExpr(const std::string& k,
+                 const std::string& t,
+                 const std::optional<std::string>& n = std::nullopt,
+                 const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        return j;
+    }
+};
+
+class SizeOfPackExpr : public ASTNode {
+public:
+    std::string identifier;
+
+    SizeOfPackExpr(const std::string& k,
+                   const std::string& id,
+                   const std::optional<std::string>& n = std::nullopt,
+                   const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), identifier(id) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["identifier"] = identifier;
+        return j;
+    }
+};
+
+class VAArgExpr : public ASTNode {
+public:
+    std::string type;
+    std::unique_ptr<ASTNode> expr;
+
+    VAArgExpr(const std::string& k,
+              const std::string& t,
+              std::unique_ptr<ASTNode> e,
+              const std::optional<std::string>& n = std::nullopt,
+              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t), expr(std::move(e)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        j["expr"] = expr->to_dict();
+        return j;
+    }
+};
+
+class TypeTraitExpr : public ASTNode {
+public:
+    std::string trait;
+
+    TypeTraitExpr(const std::string& k,
+                  const std::string& t,
+                  const std::optional<std::string>& n = std::nullopt,
+                  const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), trait(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["trait"] = trait;
+        return j;
+    }
+};
+
+class AlignOfExpr : public ASTNode {
+public:
+    std::string type;
+
+    AlignOfExpr(const std::string& k,
+                const std::string& t,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        return j;
+    }
+};
+
+class UnaryExprOrTypeTraitExpr : public ASTNode {
+public:
+    std::string exprType;
+
+    UnaryExprOrTypeTraitExpr(const std::string& k,
+                              const std::string& et,
+                              const std::optional<std::string>& n = std::nullopt,
+                              const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), exprType(et) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["exprType"] = exprType;
+        return j;
+    }
+};
+
+class MemberExpr : public ASTNode {
+public:
+    std::string memberName;
+    std::unique_ptr<ASTNode> base;
+
+    MemberExpr(const std::string& k,
+               const std::string& m,
+               std::unique_ptr<ASTNode> b,
+               const std::optional<std::string>& n = std::nullopt,
+               const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), memberName(m), base(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["member"] = memberName;
+        j["base"] = base->to_dict();
+        return j;
+    }
+};
+
+class Designator : public ASTNode {
+public:
+    std::string field;
+
+    Designator(const std::string& k,
+               const std::string& f,
+               const std::optional<std::string>& n = std::nullopt,
+               const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), field(f) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["field"] = field;
+        return j;
+    }
+};
+
+class AsmStmt : public ASTNode {
+public:
+    std::string asmString;
+
+    AsmStmt(const std::string& k,
+            const std::string& s,
+            const std::optional<std::string>& n = std::nullopt,
+            const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), asmString(s) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["asm"] = asmString;
+        return j;
+    }
+};
+
+class ImaginaryLiteral : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> value;
+
+    ImaginaryLiteral(const std::string& k,
+                     std::unique_ptr<ASTNode> v,
+                     const std::optional<std::string>& n = std::nullopt,
+                     const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), value(std::move(v)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["value"] = value->to_dict();
+        return j;
+    }
+};
+
+class OMPParallelDirective : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> body;
+
+    OMPParallelDirective(const std::string& k,
+                         std::vector<std::unique_ptr<ASTNode>> b,
+                         const std::optional<std::string>& n = std::nullopt,
+                         const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), body(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["body"] = json::array();
+        for (const auto& s : body)
+            j["body"].push_back(s->to_dict());
+        return j;
+    }
+};
+
+class OMPForDirective : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> body;
+
+    OMPForDirective(const std::string& k,
+                    std::vector<std::unique_ptr<ASTNode>> b,
+                    const std::optional<std::string>& n = std::nullopt,
+                    const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), body(std::move(b)) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["body"] = json::array();
+        for (const auto& s : body)
+            j["body"].push_back(s->to_dict());
+        return j;
+    }
+};
+
+class FunctionProtoType : public ASTNode {
+public:
+    std::string type;
+
+    FunctionProtoType(const std::string& k,
+                      const std::string& t,
+                      const std::optional<std::string>& n = std::nullopt,
+                      const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), type(t) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["type"] = type;
+        return j;
+    }
+};
+
+class PointerType : public ASTNode {
+public:
+    std::string pointee;
+
+    PointerType(const std::string& k,
+                const std::string& p,
+                const std::optional<std::string>& n = std::nullopt,
+                const std::optional<int>& a = std::nullopt)
+        : ASTNode(k, n, a), pointee(p) {}
+
+    json to_dict() const override {
+        json j = ASTNode::to_dict();
+        j["pointee"] = pointee;
+        return j;
+    }
+};
 
 
 // Helper function to convert a json array to a vector of ASTNode pointers
@@ -1056,6 +1418,111 @@ std::unique_ptr<ASTNode> from_dict(const json& data) {
     else if (kind == "PredefinedExpr") {
         std::string text = safe_get_string(data, "text", "");
         return std::make_unique<PredefinedExpr>(kind, text, name, addr);
+    }
+    
+    else if (kind == "CStyleCastExpr") {
+        std::string type = data.value("type", "");
+        auto subExpr = from_dict(data["inner"][0]);
+        return std::make_unique<CStyleCastExpr>(kind, type, std::move(subExpr), name, addr);
+    }
+
+    else if (kind == "NullPointerLiteralExpr") {
+        std::string type = data.value("type", "");
+        return std::make_unique<NullPointerLiteralExpr>(kind, type, name, addr);
+    }
+
+    else if (kind == "CompoundLiteralExpr") {
+        std::string type = data.value("type", "");
+        auto initializer = from_dict(data["inner"][0]);
+        return std::make_unique<CompoundLiteralExpr>(kind, type, std::move(initializer), name, addr);
+    }
+    
+    else if (kind == "DesignatedInitExpr") {
+        auto inits = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<DesignatedInitExpr>(kind, std::move(inits), name, addr);
+    }
+
+    else if (kind == "GenericSelectionExpr") {
+        auto inner = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<GenericSelectionExpr>(kind, std::move(inner), name, addr);
+    }
+
+    else if (kind == "StaticAssertDecl") {
+        auto cond = from_dict(data["inner"][0]);
+        std::string msg = data.value("message", "");
+        return std::make_unique<StaticAssertDecl>(kind, std::move(cond), msg, name, addr);
+    }
+
+    else if (kind == "OffsetOfExpr") {
+        std::string type = data.value("type", "");
+        return std::make_unique<OffsetOfExpr>(kind, type, name, addr);
+    }
+    
+    else if (kind == "SizeOfPackExpr") {
+        std::string id = data.value("name", "");
+        return std::make_unique<SizeOfPackExpr>(kind, id, name, addr);
+    }
+    
+    else if (kind == "VAArgExpr") {
+        std::string type = data.value("type", "");
+        auto expr = from_dict(data["inner"][0]);
+        return std::make_unique<VAArgExpr>(kind, type, std::move(expr), name, addr);
+    }
+    
+    else if (kind == "TypeTraitExpr") {
+        std::string trait = data.value("trait", "");
+        return std::make_unique<TypeTraitExpr>(kind, trait, name, addr);
+    }
+
+    else if (kind == "AlignOfExpr") {
+        std::string type = data.value("type", "");
+        return std::make_unique<AlignOfExpr>(kind, type, name, addr);
+    }
+
+    else if (kind == "UnaryExprOrTypeTraitExpr") {
+        std::string exprType = data.value("type", "");
+        return std::make_unique<UnaryExprOrTypeTraitExpr>(kind, exprType, name, addr);
+    }
+    
+    else if (kind == "MemberExpr") {
+        std::string memberName = data.value("name", "");
+        auto base = from_dict(data["inner"][0]);
+        return std::make_unique<MemberExpr>(kind, memberName, std::move(base), name, addr);
+    }
+    
+    else if (kind == "Designator") {
+        std::string field = data.value("name", "");
+        return std::make_unique<Designator>(kind, field, name, addr);
+    }
+    
+    else if (kind == "AsmStmt") {
+        std::string s = data.value("asmString", "");
+        return std::make_unique<AsmStmt>(kind, s, name, addr);
+    }
+    
+    else if (kind == "ImaginaryLiteral") {
+        auto value = from_dict(data["inner"][0]);
+        return std::make_unique<ImaginaryLiteral>(kind, std::move(value), name, addr);
+    }
+    
+    else if (kind == "OMPParallelDirective") {
+        auto body = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<OMPParallelDirective>(kind, std::move(body), name, addr);
+    }
+
+    else if (kind == "OMPForDirective") {
+        auto body = from_dict_list(data.value("inner", json::array()));
+        return std::make_unique<OMPForDirective>(kind, std::move(body), name, addr);
+    }
+    
+    else if (kind == "FunctionProtoType") {
+        std::string type = data.value("type", "");
+        return std::make_unique<FunctionProtoType>(kind, type, name, addr);
+    }
+    
+    else if (kind == "PointerType") {
+        std::string pointee = data.value("type", "");
+        return std::make_unique<PointerType>(kind, pointee, name, addr);
     }
 
     else{
