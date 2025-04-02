@@ -16,32 +16,45 @@ void emit_measure(QMLIR_Function& func, const std::string& qubit_tmp, const std:
 
 void emit_quantum_adder(QMLIR_Function& func, const std::string& result,
                         const std::string& a, const std::string& b, int num_bits) {
-    std::vector<std::string> carry_bits;
-    for (int i = 0; i < num_bits; ++i) {
-        std::string c = new_tmp("anc");
-        emit_qubit_alloc(func, c, 1);
-        carry_bits.push_back(c);
-    }
-
-    // Copy register 'a' into result via CNOTs.
-    for (int i = 0; i < num_bits; ++i) {
-        func.ops.push_back({QOpKind::Custom, "", a + "[" + std::to_string(i) + "]",
-                            result + "[" + std::to_string(i) + "]", 0, "q.cx"});
-    }
-
-    // Add b into result.
-    for (int i = 0; i < num_bits; ++i) {
-        func.ops.push_back({QOpKind::Custom, "", b + "[" + std::to_string(i) + "]",
-                            result + "[" + std::to_string(i) + "]", 0, "q.cx"});
-        func.ops.push_back({QOpKind::Custom, carry_bits[i] + "[0]",
-                            result + "[" + std::to_string(i) + "]",
-                            b + "[" + std::to_string(i) + "]", 0, "q.ccx"});
-    }
-
-    // Propagate carries.
-    for (int i = 1; i < num_bits; ++i) {
-        func.ops.push_back({QOpKind::Custom, "", carry_bits[i - 1] + "[0]",
-                            result + "[" + std::to_string(i) + "]", 0, "q.cx"});
+     // Create a carry register with num_bits+1 qubits (including carry-in bit)
+     std::string carry = new_tmp("c");
+     emit_qubit_alloc(func, carry, num_bits + 1);
+     
+     // Implement a proper quantum ripple-carry adder
+     
+     // Bit 0 (least significant bit)
+     // First step: compute a[0] XOR b[0] and store in result[0]
+     func.ops.push_back({QOpKind::Custom, "", a + "[0]", result + "[0]", 0, "q.cx"});
+     func.ops.push_back({QOpKind::Custom, "", b + "[0]", result + "[0]", 0, "q.cx"});
+     
+     // Second step: compute carry-out c[1] = a[0] AND b[0]
+     func.ops.push_back({QOpKind::Custom, carry + "[1]", a + "[0]", b + "[0]", 0, "q.ccx"});
+     
+     // For bits 1 through num_bits-1
+     for (int i = 1; i < num_bits; i++) {
+         // First compute the XOR: result[i] = a[i] XOR b[i]
+         func.ops.push_back({QOpKind::Custom, "", a + "[" + std::to_string(i) + "]", 
+                             result + "[" + std::to_string(i) + "]", 0, "q.cx"});
+         func.ops.push_back({QOpKind::Custom, "", b + "[" + std::to_string(i) + "]", 
+                             result + "[" + std::to_string(i) + "]", 0, "q.cx"});
+         
+         // Compute the carry-out: c[i+1] = (a[i] AND b[i]) OR (c[i] AND (a[i] OR b[i]))
+         // We're using the fact that (a[i] OR b[i]) = (a[i] XOR b[i]) XOR (a[i] AND b[i])
+         
+         // First part: a[i] AND b[i] -> c[i+1]
+         func.ops.push_back({QOpKind::Custom, carry + "[" + std::to_string(i+1) + "]", 
+                             a + "[" + std::to_string(i) + "]", 
+                             b + "[" + std::to_string(i) + "]", 0, "q.ccx"});
+         
+         // Second part: c[i] AND (a[i] XOR b[i]) -> temp
+         // Note: result[i] already contains a[i] XOR b[i]
+         func.ops.push_back({QOpKind::Custom, carry + "[" + std::to_string(i+1) + "]", 
+                             result + "[" + std::to_string(i) + "]", 
+                             carry + "[" + std::to_string(i) + "]", 0, "q.ccx"});
+         
+         // Third part: complete the carry-out computation by XORing with the carry-in
+         func.ops.push_back({QOpKind::Custom, "", carry + "[" + std::to_string(i) + "]", 
+                             result + "[" + std::to_string(i) + "]", 0, "q.cx"});
     }
 }
 

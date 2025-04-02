@@ -1,13 +1,12 @@
 #include <stdio.h>
 
-void circuit_test() {
-    int a = 5;
-    int b = 7;
+void quantum_circuit() {
+    int a = 3;
+    int b = 2;
     int sum = a + b;
-    cout << sum << endl;
+    printf("%d\n", sum);
 }
-
 int main() {
-    circuit_test();
+    quantum_circuit();
     return 0;    
 }

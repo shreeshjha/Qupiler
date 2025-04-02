@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 void quantum_circuit() {
-    int x = 10;
+    int x = 3;
     int y = 1;
     int diff = x - y;
     printf("%d\n", diff);
