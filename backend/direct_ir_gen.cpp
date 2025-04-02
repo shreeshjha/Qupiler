@@ -43,21 +43,28 @@ public:
             }
         }
     }
+    
     void process_decl_stmt(const nlohmann::json& decl_json) {
         if (!decl_json.contains("inner") || !decl_json["inner"].is_array()) return;
         for (const auto& decl : decl_json["inner"]) {
             if (!decl.is_object() || decl["kind"] != "VarDecl") continue;
             std::string var_name = decl.value("name", "");
             if (var_name.empty()) continue;
-            std::string tmp = new_tmp(quantum_mode ? "q" : "t");
-            vars[var_name] = tmp;
-            if (quantum_mode) {
-                emit_qubit_alloc(func, tmp, QBIT_WIDTH);
-                if (decl.contains("inner") && !decl["inner"].empty()) {
-                    const auto& init = decl["inner"][0];
+            // Only allocate a new register if this variable hasn't been declared yet.
+            if (vars.find(var_name) == vars.end()) {
+                std::string tmp = new_tmp(quantum_mode ? "q" : "t");
+                vars[var_name] = tmp;
+                if (quantum_mode) {
+                    emit_qubit_alloc(func, tmp, QBIT_WIDTH);
+                }
+            }
+            // Process initializer if available.
+            if (decl.contains("inner") && !decl["inner"].empty()) {
+                const auto& init = decl["inner"][0];
+                if (quantum_mode) {
                     if (init["kind"] == "IntegerLiteral" && init.contains("value")) {
                         int value = std::stoi(init["value"].get<std::string>());
-                        emit_qubit_init(func, tmp, value, QBIT_WIDTH);
+                        emit_qubit_init(func, vars[var_name], value, QBIT_WIDTH);
                     } else if (init["kind"] == "BinaryOperator") {
                         std::string op = init.value("opcode", "");
                         std::string left_var, right_var;
@@ -88,13 +95,10 @@ public:
                             vars[var_name] = result;
                         }
                     }
-                }
-            } else {
-                if (decl.contains("inner") && !decl["inner"].empty()) {
-                    const auto& init = decl["inner"][0];
+                } else {
                     if (init["kind"] == "IntegerLiteral" && init.contains("value")) {
                         int value = std::stoi(init["value"].get<std::string>());
-                        func.ops.push_back({QOpKind::Const, tmp, "", "", value});
+                        func.ops.push_back({QOpKind::Const, vars[var_name], "", "", value});
                     } else if (init["kind"] == "BinaryOperator") {
                         std::string op = init.value("opcode", "");
                         std::string left_var, right_var;
@@ -117,15 +121,16 @@ public:
                             find_ref(init["inner"][1], right_var) &&
                             vars.count(left_var) && vars.count(right_var)) {
                             if (op == "+")
-                                func.ops.push_back({QOpKind::Add, tmp, vars[left_var], vars[right_var]});
+                                func.ops.push_back({QOpKind::Add, vars[var_name], vars[left_var], vars[right_var]});
                             else if (op == "-")
-                                func.ops.push_back({QOpKind::Sub, tmp, vars[left_var], vars[right_var]});
+                                func.ops.push_back({QOpKind::Sub, vars[var_name], vars[left_var], vars[right_var]});
                         }
                     }
                 }
             }
         }
     }
+    
     void process_call_expr(const nlohmann::json& call_json) {
         if (!call_json.contains("inner")) return;
         for (size_t i = 1; i < call_json["inner"].size(); ++i) {
