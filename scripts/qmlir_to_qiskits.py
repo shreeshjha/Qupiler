@@ -332,7 +332,7 @@ def main():
     
     # Add simulator setup and execution
     qiskit_lines.append("# Use the automatic simulator to choose the best method")
-    qiskit_lines.append("simulator = AerSimulator(method='automatic')")
+    qiskit_lines.append("simulator = AerSimulator(method='matrix_product_state')")
     qiskit_lines.append("job = simulator.run(qc, shots=1024)")
     qiskit_lines.append("result = job.result()")
     qiskit_lines.append("counts = result.get_counts()")
