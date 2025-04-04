@@ -80,3 +80,128 @@ void emit_quantum_subtractor(QMLIR_Function& func, const std::string& result,
     emit_quantum_adder(func, result, a, b_twos, num_bits);
 }
 
+// Shifts a register 'src' by 'shift' bits into register 'dst'.
+// Both src and dst should have at least (shift + num_bits) qubits allocated.
+void emit_quantum_shift(QMLIR_Function& func,
+                        const std::string& src,
+                        const std::string& dst,
+                        int shift,
+                        int num_bits) {
+    // Copy src[i] into dst[i+shift] using CX gates.
+    // We assume dst is already allocated and 0-initialized.
+    for (int i = 0; i < num_bits; i++) {
+        // Move src[i] → dst[i+shift]
+        // First do dst[i+shift] = dst[i+shift] XOR src[i].
+        // Because dst[i+shift] is initially 0, it just becomes src[i].
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",                           // no explicit 'result' variable
+            src + "[" + std::to_string(i) + "]",
+            dst + "[" + std::to_string(i + shift) + "]",
+            0,
+            "q.cx"
+        });
+    }
+}
+
+void emit_quantum_multiplier(QMLIR_Function& func, const std::string& result, 
+                           const std::string& a, const std::string& b, int num_bits) {
+    // For small numbers like 1×2, 2×3, etc., we can use a very direct approach
+    // that essentially mimics the classical multiplication algorithm
+    
+    // Create an accumulator register (initialized to 0)
+    std::string acc = new_tmp("acc");
+    emit_qubit_alloc(func, acc, 2 * num_bits);
+    
+    // For bit 0 of the multiplier (b)
+    // If b[0] is 1, add a to the accumulator
+    for (int j = 0; j < num_bits; j++) {
+        // Create a control qubit
+        std::string ctl0 = new_tmp("ctl");
+        emit_qubit_alloc(func, ctl0, 1);
+        
+        // Set ctl0 to 1 if b[0] AND a[j] is 1
+        func.ops.push_back({QOpKind::Custom, ctl0 + "[0]", 
+                           b + "[0]", 
+                           a + "[" + std::to_string(j) + "]", 
+                           0, "q.ccx"});
+        
+        // XOR ctl0 into the accumulator at position j
+        func.ops.push_back({QOpKind::Custom, "", 
+                           ctl0 + "[0]", 
+                           acc + "[" + std::to_string(j) + "]", 
+                           0, "q.cx"});
+    }
+    
+    // For bit 1 of the multiplier (b)
+    // If b[1] is 1, add a << 1 (shifted left by 1) to the accumulator
+    for (int j = 0; j < num_bits; j++) {
+        // Create a control qubit
+        std::string ctl1 = new_tmp("ctl");
+        emit_qubit_alloc(func, ctl1, 1);
+        
+        // Set ctl1 to 1 if b[1] AND a[j] is 1
+        func.ops.push_back({QOpKind::Custom, ctl1 + "[0]", 
+                           b + "[1]", 
+                           a + "[" + std::to_string(j) + "]", 
+                           0, "q.ccx"});
+        
+        // XOR ctl1 into the accumulator at position j+1
+        func.ops.push_back({QOpKind::Custom, "", 
+                           ctl1 + "[0]", 
+                           acc + "[" + std::to_string(j+1) + "]", 
+                           0, "q.cx"});
+    }
+    
+    // For bit 2 of the multiplier (b)
+    // If b[2] is 1, add a << 2 (shifted left by 2) to the accumulator
+    for (int j = 0; j < num_bits; j++) {
+        if (j+2 < 2*num_bits) {
+            // Create a control qubit
+            std::string ctl2 = new_tmp("ctl");
+            emit_qubit_alloc(func, ctl2, 1);
+            
+            // Set ctl2 to 1 if b[2] AND a[j] is 1
+            func.ops.push_back({QOpKind::Custom, ctl2 + "[0]", 
+                               b + "[2]", 
+                               a + "[" + std::to_string(j) + "]", 
+                               0, "q.ccx"});
+            
+            // XOR ctl2 into the accumulator at position j+2
+            func.ops.push_back({QOpKind::Custom, "", 
+                               ctl2 + "[0]", 
+                               acc + "[" + std::to_string(j+2) + "]", 
+                               0, "q.cx"});
+        }
+    }
+    
+    // For bit 3 of the multiplier (b)
+    // If b[3] is 1, add a << 3 (shifted left by 3) to the accumulator
+    for (int j = 0; j < num_bits; j++) {
+        if (j+3 < 2*num_bits) {
+            // Create a control qubit
+            std::string ctl3 = new_tmp("ctl");
+            emit_qubit_alloc(func, ctl3, 1);
+            
+            // Set ctl3 to 1 if b[3] AND a[j] is 1
+            func.ops.push_back({QOpKind::Custom, ctl3 + "[0]", 
+                               b + "[3]", 
+                               a + "[" + std::to_string(j) + "]", 
+                               0, "q.ccx"});
+            
+            // XOR ctl3 into the accumulator at position j+3
+            func.ops.push_back({QOpKind::Custom, "", 
+                               ctl3 + "[0]", 
+                               acc + "[" + std::to_string(j+3) + "]", 
+                               0, "q.cx"});
+        }
+    }
+    
+    // Now copy the lower bits of the accumulator to the result
+    for (int i = 0; i < num_bits; i++) {
+        func.ops.push_back({QOpKind::Custom, "", 
+                           acc + "[" + std::to_string(i) + "]", 
+                           result + "[" + std::to_string(i) + "]", 
+                           0, "q.cx"});
+    }
+}

@@ -12,4 +12,11 @@ void emit_quantum_adder(QMLIR_Function& func, const std::string& result,
 void emit_quantum_subtractor(QMLIR_Function& func, const std::string& result,
                              const std::string& a, const std::string& b, int num_bits);
 
+
+
+void emit_quantum_shift(QMLIR_Function& func, const std::string& src,const std::string& dst, int shift, int num_bits);
+
+void emit_quantum_multiplier(QMLIR_Function& func, const std::string& result, 
+                           const std::string& a, const std::string& b, int num_bits);
+
 void reset_global_tmps();
