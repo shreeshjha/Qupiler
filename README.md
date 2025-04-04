@@ -98,8 +98,8 @@ Improve support for compound blocks to cover remaining edge cases.
 ### 🔧 Optimized T Gate Implementation
 Implement T gates in a more optimized and hardware-aware fashion.
 
-###🔁 Function Calling Support
+### 🔁 Function Calling Support
 Enable quantum functions to call other quantum functions.
 
-###⚙️ LLVM and Custom Optimization
+### ⚙️ LLVM and Custom Optimization
 Add LLVM pass integration and implement custom QMLIR-level optimizations.
