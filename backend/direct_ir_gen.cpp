@@ -87,6 +87,8 @@ public:
                                 emit_quantum_subtractor(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             else if (op == "*")
                                 emit_quantum_multiplier(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
+                            else if (op == "/")
+                                emit_quantum_divider(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
                         }
                     }
@@ -124,6 +126,8 @@ public:
                                 func.ops.push_back({QOpKind::Sub, tmp, vars[left_var], vars[right_var]});
                             else if (op == "*")
                                 func.ops.push_back({QOpKind::Mul, tmp, vars[left_var], vars[right_var]});
+                            else if (op == "/")
+                                func.ops.push_back({QOpKind::Div, tmp, vars[left_var], vars[right_var]}); 
                         }
                     }
                 }
