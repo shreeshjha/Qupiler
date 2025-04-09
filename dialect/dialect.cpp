@@ -148,6 +148,8 @@ void emit_quantum_multiplier(QMLIR_Function& func, const std::string& result,
 }
 
 
+
+
 void emit_quantum_divider(QMLIR_Function& func,
                           const std::string& result,
                           const std::string& a,
@@ -167,7 +169,7 @@ void emit_quantum_divider(QMLIR_Function& func,
     emit_qubit_alloc(func, remainder, num_bits);
     emit_qubit_init(func, remainder, 0, num_bits);
     
-    // Process bits from MSB to LSB
+    // Process bits from MSB down to LSB
     for (int i = num_bits - 1; i >= 0; i--) {
         // Create ancillas for this iteration
         std::string shifted_rem = new_tmp("srem");
@@ -175,86 +177,104 @@ void emit_quantum_divider(QMLIR_Function& func,
         emit_qubit_init(func, shifted_rem, 0, num_bits);
         
         // Step 1: Shift remainder left by 1 bit
-        // We need to start from MSB side to avoid overwriting
+        // (copy remainder[j] → shifted_rem[j+1], from top down to avoid overwriting)
         for (int j = num_bits - 2; j >= 0; j--) {
-            func.ops.push_back({QOpKind::Custom, "",
-                                remainder + "[" + std::to_string(j) + "]",
-                                shifted_rem + "[" + std::to_string(j + 1) + "]",
-                                0, "q.cx"});
+            func.ops.push_back({
+                QOpKind::Custom, "", 
+                remainder + "[" + std::to_string(j) + "]",
+                shifted_rem + "[" + std::to_string(j + 1) + "]",
+                0, "q.cx"
+            });
         }
         
-        // Step 2: Bring down next bit from dividend at position i
-        func.ops.push_back({QOpKind::Custom, "",
-                            a + "[" + std::to_string(i) + "]",
-                            shifted_rem + "[0]",
-                            0, "q.cx"});
+        // Step 2: Bring down next bit from dividend into the LSB of shifted_rem
+        func.ops.push_back({
+            QOpKind::Custom, "",
+            a + "[" + std::to_string(i) + "]",
+            shifted_rem + "[0]",
+            0, "q.cx"
+        });
         
-        // Step 3: Compare shifted_rem with divisor using subtractor
+        // Step 3: Compare shifted_rem with divisor by subtracting:  diff = shifted_rem - b
         std::string diff = new_tmp("diff");
         emit_qubit_alloc(func, diff, num_bits);
         emit_quantum_subtractor(func, diff, shifted_rem, b, num_bits);
         
-        // Step 4: Check if shifted_rem >= divisor
-        // If diff[MSB] = 0, then shifted_rem >= divisor
-        // If diff[MSB] = 1, then shifted_rem < divisor
+        // Step 4: geq = NOT( diff[MSB] )  -- sign bit is diff[num_bits-1]
+        // If sign bit is 1 => remainder went negative => shifted_rem < divisor
+        // If sign bit is 0 => shifted_rem >= divisor
         std::string geq = new_tmp("geq");
         emit_qubit_alloc(func, geq, 1);
         
-        // Copy sign bit and invert it
-        func.ops.push_back({QOpKind::Custom, "",
-                            diff + "[" + std::to_string(num_bits - 1) + "]",
-                            geq + "[0]",
-                            0, "q.cx"});
-        func.ops.push_back({QOpKind::Custom, "",
-                            geq + "[0]",
-                            "",
-                            0, "q.x"});
+        // Copy sign bit into geq and then invert
+        func.ops.push_back({
+            QOpKind::Custom, "",
+            diff + "[" + std::to_string(num_bits - 1) + "]",
+            geq + "[0]",
+            0, "q.cx"
+        });
+        func.ops.push_back({
+            QOpKind::Custom, "",
+            geq + "[0]",
+            "",
+            0, "q.x" // invert
+        });
         
         // Step 5: Set the quotient bit at position i
-        func.ops.push_back({QOpKind::Custom, "",
-                            geq + "[0]",
-                            quotient + "[" + std::to_string(i) + "]",
-                            0, "q.cx"});
+        func.ops.push_back({
+            QOpKind::Custom, "",
+            geq + "[0]",
+            quotient + "[" + std::to_string(i) + "]",
+            0, "q.cx"
+        });
         
-        // Step 6: Update remainder
+        // Step 6: Update remainder = (geq == 1) ? diff : shifted_rem
+        
+        // 6a. Allocate new remainder
         std::string new_rem = new_tmp("nrem");
         emit_qubit_alloc(func, new_rem, num_bits);
         
-        // First, copy shifted_rem to new_rem
+        // 6b. Copy shifted_rem into new_rem
         for (int j = 0; j < num_bits; j++) {
-            func.ops.push_back({QOpKind::Custom, "",
-                                shifted_rem + "[" + std::to_string(j) + "]",
-                                new_rem + "[" + std::to_string(j) + "]",
-                                0, "q.cx"});
+            func.ops.push_back({
+                QOpKind::Custom, "",
+                shifted_rem + "[" + std::to_string(j) + "]",
+                new_rem + "[" + std::to_string(j) + "]",
+                0, "q.cx"
+            });
         }
         
-        // If geq=1, apply diff to new_rem (but skip the sign bit)
-        for (int j = 0; j < num_bits - 1; j++) {
+        // 6c. Multiplex each bit: if geq=1, new_rem[j] should become diff[j]
+        for (int j = 0; j < num_bits; j++) {
+            // delta = diff[j] XOR new_rem[j]
+            std::string delta = new_tmp("delta");
+            emit_qubit_alloc(func, delta, 1);
+
+            // delta ← diff[j] ⊕ new_rem[j]
+            func.ops.push_back({QOpKind::Custom, "", diff + "[" + std::to_string(j) + "]", delta + "[0]", 0, "q.cx"});
+            func.ops.push_back({QOpKind::Custom, "", new_rem + "[" + std::to_string(j) + "]", delta + "[0]", 0, "q.cx"});
+
+            // temp = geq AND delta
             std::string temp = new_tmp("temp");
             emit_qubit_alloc(func, temp, 1);
-            
-            // Compute AND: temp = geq AND diff[j]
-            func.ops.push_back({QOpKind::Custom, temp + "[0]",
-                                geq + "[0]",
-                                diff + "[" + std::to_string(j) + "]",
-                                0, "q.ccx"});
-            
-            // Apply XOR: new_rem[j] = new_rem[j] XOR temp
-            func.ops.push_back({QOpKind::Custom, "",
-                                temp + "[0]",
-                                new_rem + "[" + std::to_string(j) + "]",
-                                0, "q.cx"});
+
+            func.ops.push_back({QOpKind::Custom, temp + "[0]", geq + "[0]", delta + "[0]", 0, "q.ccx"});
+
+            // new_rem[j] ^= temp
+            func.ops.push_back({QOpKind::Custom, "", temp + "[0]", new_rem + "[" + std::to_string(j) + "]", 0, "q.cx"});
         }
         
-        // Update remainder for next iteration
+        // Update remainder for the next iteration
         remainder = new_rem;
     }
     
-    // Copy final quotient to result
+    // Finally, copy the quotient out into `result`
     for (int i = 0; i < num_bits; i++) {
-        func.ops.push_back({QOpKind::Custom, "",
-                            quotient + "[" + std::to_string(i) + "]",
-                            result + "[" + std::to_string(i) + "]",
-                            0, "q.cx"});
+        func.ops.push_back({
+            QOpKind::Custom, "",
+            quotient + "[" + std::to_string(i) + "]",
+            result + "[" + std::to_string(i) + "]",
+            0, "q.cx"
+        });
     }
 }
