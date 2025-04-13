@@ -10,6 +10,7 @@ enum class QOpKind {
     Sub,
     Mul,
     Div,
+    Mod,
     Print,
     Return,
     Custom  // For quantum-specific operations.
@@ -43,6 +44,10 @@ struct QMLIR_Op {
                 break;
             case QOpKind::Div:
                 oss << "  %" << result << " = q.divi %" << lhs << ", %" << rhs << " : i32";
+                break;
+            case QOpKind::Mod:
+                oss << "  %" << result << " = q.modi %" << lhs << ", %" << rhs << " : i32";
+                break;
             case QOpKind::Print:
                 oss << "  q.print %" << lhs;
                 break;

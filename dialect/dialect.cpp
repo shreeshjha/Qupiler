@@ -278,3 +278,20 @@ void emit_quantum_divider(QMLIR_Function& func,
         });
     }
 }
+
+
+void emit_quantum_modulo(QMLIR_Function& func, const std::string& result, const std::string& a, const std::string& b, int num_bits) {
+    // a % b = a - (b * (a / b)) 
+    // Step 1: Compute quotient = a / b
+    std::string quotient = new_tmp("quot");
+    emit_qubit_alloc(func, quotient, num_bits);
+    emit_quantum_divider(func, quotient, a, b, num_bits);
+    
+    // Step 2: Compute product = b * quotient
+    std::string product = new_tmp("prod");
+    emit_qubit_alloc(func, product, num_bits);
+    emit_quantum_multiplier(func, product, b, quotient, num_bits);
+    
+    // Step 3: Compute remainder = a - product
+    emit_quantum_subtractor(func, result, a, product, num_bits);   
+}

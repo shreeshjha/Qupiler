@@ -25,4 +25,5 @@ void emit_quantum_divider(QMLIR_Function& func,
                           const std::string& b,
                           int num_bits);
 
+void emit_quantum_modulo(QMLIR_Function& func, const std::string& result, const std::string& a, const std::string& b, int num_bits);
 void reset_global_tmps();

@@ -89,6 +89,8 @@ public:
                                 emit_quantum_multiplier(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             else if (op == "/")
                                 emit_quantum_divider(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
+                            else if (op == "%")
+                                emit_quantum_modulo(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
                         }
                     }
@@ -127,13 +129,16 @@ public:
                             else if (op == "*")
                                 func.ops.push_back({QOpKind::Mul, tmp, vars[left_var], vars[right_var]});
                             else if (op == "/")
-                                func.ops.push_back({QOpKind::Div, tmp, vars[left_var], vars[right_var]}); 
+                                func.ops.push_back({QOpKind::Div, tmp, vars[left_var], vars[right_var]});
+                            else if (op == "%")
+                                func.ops.push_back({QOpKind::Mod, tmp, vars[left_var], vars[right_var]});
                         }
                     }
                 }
             }
         }
     }
+
     void process_call_expr(const nlohmann::json& call_json) {
         if (!call_json.contains("inner")) return;
         for (size_t i = 1; i < call_json["inner"].size(); ++i) {
