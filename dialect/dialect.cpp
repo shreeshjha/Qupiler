@@ -437,3 +437,32 @@ void emit_quantum_or(QMLIR_Function& func, const std::string& result,
         });
     }
 }
+
+
+void emit_quantum_not(QMLIR_Function& func, const std::string& result,
+                      const std::string& input, int num_bits) {
+    // Perform bitwise NOT on input, storing the result in result
+    // Each bit in result will be the inverse of the corresponding bit in input
+    
+    for (int i = 0; i < num_bits; i++) {
+        // First, copy the input bit to the result bit
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",  // no explicit result
+            input + "[" + std::to_string(i) + "]",  // control
+            result + "[" + std::to_string(i) + "]",  // target
+            0,
+            "q.cx"  // CNOT gate
+        });
+        
+        // Then, apply X gate to invert the result bit
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",  // no explicit result
+            result + "[" + std::to_string(i) + "]",  // target
+            "",  // no control
+            0,
+            "q.x"  // Pauli-X gate (NOT)
+        });
+    }
+}

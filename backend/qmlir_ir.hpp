@@ -16,6 +16,9 @@ enum class QOpKind {
     Dec,
     Print,
     Return,
+    And,
+    Or,
+    Not,
     Custom  // For quantum-specific operations.
 };
 
@@ -59,6 +62,15 @@ struct QMLIR_Op {
                 break;
             case QOpKind::Dec:
                 oss << "  %" << result << " = q.deci %" << lhs << " : i32";
+                break;
+            case QOpKind::And:  
+                oss << "  %" << result << " = q.andi %" << lhs << ", %" << rhs << " : i32";
+                break;
+            case QOpKind::Or:   
+                oss << "  %" << result << " = q.ori %" << lhs << ", %" << rhs << " : i32";
+                break;
+            case QOpKind::Not:  
+                oss << "  %" << result << " = q.noti %" << lhs << " : i32";
                 break;
             case QOpKind::Print:
                 oss << "  q.print %" << lhs;

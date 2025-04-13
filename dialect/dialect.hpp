@@ -43,4 +43,7 @@ void emit_quantum_and(QMLIR_Function& func, const std::string& result,
 void emit_quantum_or(QMLIR_Function& func, const std::string& result,
                      const std::string& a, const std::string& b, int num_bits);
 
+void emit_quantum_not(QMLIR_Function& func, const std::string& result,
+                      const std::string& input, int num_bits);
+
 void reset_global_tmps();

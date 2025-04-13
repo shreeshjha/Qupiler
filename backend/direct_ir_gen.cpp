@@ -133,6 +133,12 @@ public:
                                 else
                                     func.ops.push_back({QOpKind::Dec, tmp, vars[var]});
                             }
+                            else if (op == "~") {  
+                                if (quantum_mode)
+                                    emit_quantum_not(func, tmp, vars[var], QBIT_WIDTH);
+                                else
+                                    func.ops.push_back({QOpKind::Not, tmp, vars[var]});
+                            }
                         }
                     }
                 }
