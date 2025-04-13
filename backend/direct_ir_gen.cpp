@@ -105,6 +105,8 @@ public:
                                 emit_quantum_divider(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             else if (op == "%")
                                 emit_quantum_modulo(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
+                            else if (op == "&&")
+                                emit_quantum_and(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
                         }
                     } else if (init["kind"] == "UnaryOperator") {

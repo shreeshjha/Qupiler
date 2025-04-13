@@ -345,3 +345,38 @@ void emit_quantum_decrement(QMLIR_Function& func, const std::string& result,
     // Subtract 1 from input
     emit_quantum_subtractor(func, result, input, minus_one, num_bits);
 }
+
+
+void emit_quantum_and(QMLIR_Function& func, const std::string& result,
+                      const std::string& a, const std::string& b, int num_bits) {
+    // Perform bitwise AND between a and b, storing the result in result
+    // Each bit in result will be the AND of the corresponding bits in a and b
+    
+    for (int i = 0; i < num_bits; i++) {
+        // We need a temporary qubit for each bit position
+        std::string temp = new_tmp("and_tmp");
+        emit_qubit_alloc(func, temp, 1);
+        
+        // Use Toffoli gate (CCNOT) to compute a[i] AND b[i] into temp[0]
+        // The Toffoli gate performs target = target ⊕ (control1 AND control2)
+        // Since temp[0] is initially 0, it becomes (a[i] AND b[i])
+        func.ops.push_back({
+            QOpKind::Custom,
+            temp + "[0]",  // target
+            a + "[" + std::to_string(i) + "]",  // control1
+            b + "[" + std::to_string(i) + "]",  // control2
+            0,
+            "q.ccx"  // Toffoli gate (CCNOT)
+        });
+        
+        // Copy the result from temp to the output register
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",  // no explicit result
+            temp + "[0]",  // control
+            result + "[" + std::to_string(i) + "]",  // target
+            0,
+            "q.cx"  // CNOT gate
+        });
+    }
+}
