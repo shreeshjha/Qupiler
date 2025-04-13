@@ -323,3 +323,25 @@ void emit_quantum_negate(QMLIR_Function& func, const std::string& result,
     // Step 4: Add 1 to the inverted bits to get two's complement
     emit_quantum_adder(func, result, inverted, plus_one, num_bits);
 }
+
+void emit_quantum_increment(QMLIR_Function& func, const std::string& result, 
+                            const std::string& input, int num_bits) {
+    // Create constant 1
+    std::string plus_one = new_tmp("one");
+    emit_qubit_alloc(func, plus_one, num_bits);
+    emit_qubit_init(func, plus_one, 1, num_bits);
+    
+    // Add 1 to input
+    emit_quantum_adder(func, result, input, plus_one, num_bits);
+}
+
+void emit_quantum_decrement(QMLIR_Function& func, const std::string& result, 
+                            const std::string& input, int num_bits) {
+    // Create constant 1
+    std::string minus_one = new_tmp("one");
+    emit_qubit_alloc(func, minus_one, num_bits);
+    emit_qubit_init(func, minus_one, 1, num_bits);
+    
+    // Subtract 1 from input
+    emit_quantum_subtractor(func, result, input, minus_one, num_bits);
+}

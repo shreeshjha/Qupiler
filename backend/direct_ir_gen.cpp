@@ -107,13 +107,28 @@ public:
                                 emit_quantum_modulo(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
                         }
-                    } else if (init["kind"] == "UnaryOperator" && init.value("opcode", "") == "-") {
+                    } else if (init["kind"] == "UnaryOperator") {
+                        std::string op = init.value("opcode", "");
                         std::string var;
                         if (find_ref(init["inner"][0], var) && vars.count(var)) {
-                        if (quantum_mode)
-                            emit_quantum_negate(func, tmp, vars[var], QBIT_WIDTH);
-                        else
-                            func.ops.push_back({QOpKind::Neg, tmp, vars[var]});
+                            if (op == "-") {
+                                if (quantum_mode)
+                                    emit_quantum_negate(func, tmp, vars[var], QBIT_WIDTH);
+                                else
+                                    func.ops.push_back({QOpKind::Neg, tmp, vars[var]});
+                            }    
+                            else if (op == "++") {
+                                if (quantum_mode)
+                                    emit_quantum_increment(func, tmp, vars[var], QBIT_WIDTH);
+                                else
+                                    func.ops.push_back({QOpKind::Inc, tmp, vars[var]});
+                                } 
+                            else if (op == "--") {
+                                if (quantum_mode)
+                                    emit_quantum_decrement(func, tmp, vars[var], QBIT_WIDTH);
+                                else
+                                    func.ops.push_back({QOpKind::Dec, tmp, vars[var]});
+                            }
                         }
                     }
                 }
