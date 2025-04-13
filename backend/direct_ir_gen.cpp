@@ -107,6 +107,8 @@ public:
                                 emit_quantum_modulo(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             else if (op == "&&")
                                 emit_quantum_and(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
+                            else if (op == "||")
+                                emit_quantum_or(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
                         }
                     } else if (init["kind"] == "UnaryOperator") {
@@ -171,6 +173,7 @@ public:
                                 func.ops.push_back({QOpKind::Div, tmp, vars[left_var], vars[right_var]});
                             else if (op == "%")
                                 func.ops.push_back({QOpKind::Mod, tmp, vars[left_var], vars[right_var]});
+                            
                         }
                     }
                 }

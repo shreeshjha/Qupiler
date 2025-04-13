@@ -380,3 +380,60 @@ void emit_quantum_and(QMLIR_Function& func, const std::string& result,
         });
     }
 }
+
+
+void emit_quantum_or(QMLIR_Function& func, const std::string& result,
+                     const std::string& a, const std::string& b, int num_bits) {
+    // Perform bitwise OR between a and b, storing the result in result
+    // Each bit in result will be the OR of the corresponding bits in a and b
+    
+    for (int i = 0; i < num_bits; i++) {
+        // Implement OR using the identity: a OR b = NOT((NOT a) AND (NOT b))
+        // Or equivalently: a OR b = a XOR b XOR (a AND b)
+        
+        // First, apply XOR of a[i] and b[i] into result[i]
+        // Initially result[i] = a[i] XOR b[i]
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",
+            a + "[" + std::to_string(i) + "]",
+            result + "[" + std::to_string(i) + "]",
+            0,
+            "q.cx"  // CNOT gate (XOR)
+        });
+        
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",
+            b + "[" + std::to_string(i) + "]",
+            result + "[" + std::to_string(i) + "]",
+            0,
+            "q.cx"  // CNOT gate (XOR)
+        });
+        
+        // We need a temporary qubit to store a[i] AND b[i]
+        std::string temp = new_tmp("or_tmp");
+        emit_qubit_alloc(func, temp, 1);
+        
+        // Compute a[i] AND b[i] into temp[0]
+        func.ops.push_back({
+            QOpKind::Custom,
+            temp + "[0]",
+            a + "[" + std::to_string(i) + "]",
+            b + "[" + std::to_string(i) + "]",
+            0,
+            "q.ccx"  // Toffoli gate (CCNOT)
+        });
+        
+        // Finally, XOR the AND result with the current value of result[i]
+        // result[i] = (a[i] XOR b[i]) XOR (a[i] AND b[i]) = a[i] OR b[i]
+        func.ops.push_back({
+            QOpKind::Custom,
+            "",
+            temp + "[0]",
+            result + "[" + std::to_string(i) + "]",
+            0,
+            "q.cx"  // CNOT gate (XOR)
+        });
+    }
+}
