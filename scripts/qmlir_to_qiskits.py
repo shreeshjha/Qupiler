@@ -351,6 +351,14 @@ def main():
     qiskit_lines.append("    most_frequent_result = max(counts, key=counts.get)")
     qiskit_lines.append("    decimal_result = int(most_frequent_result, 2)")
     qiskit_lines.append("    print(f\"Circuit output: {decimal_result} (binary: {most_frequent_result})\")")
+    # Also show two's complement interpretation if the MSB is set")
+    qiskit_lines.append("    if most_frequent_result[0] == '1':  # MSB set, could be negative")
+    qiskit_lines.append("        # Convert from two's complement")
+    qiskit_lines.append("        inverted = ''.join('1' if bit == '0' else '0' for bit in most_frequent_result)")
+    qiskit_lines.append("        magnitude = int(inverted, 2) + 1")
+    qiskit_lines.append("        signed_result = -magnitude")
+    qiskit_lines.append("        print(f\"Circuit output (signed): {signed_result} (as two's complement)\")")
+    qiskit_lines.append("print(qc)")
 
     with open(output_file, 'w') as f:
         f.write("\n".join(qiskit_lines))

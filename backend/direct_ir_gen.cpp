@@ -55,13 +55,7 @@ public:
                 emit_qubit_alloc(func, tmp, QBIT_WIDTH);
                 if (decl.contains("inner") && !decl["inner"].empty()) {
                     const auto& init = decl["inner"][0];
-                    if (init["kind"] == "IntegerLiteral" && init.contains("value")) {
-                        int value = std::stoi(init["value"].get<std::string>());
-                        emit_qubit_init(func, tmp, value, QBIT_WIDTH);
-                    } else if (init["kind"] == "BinaryOperator") {
-                        std::string op = init.value("opcode", "");
-                        std::string left_var, right_var;
-                        std::function<bool(const nlohmann::json&, std::string&)> find_ref =
+                    std::function<bool(const nlohmann::json&, std::string&)> find_ref =
                             [&](const nlohmann::json& node, std::string& var) -> bool {
                                 if (node["kind"] == "DeclRefExpr" && node.contains("referencedDecl")) {
                                     var = node["referencedDecl"].value("name", "");
@@ -75,6 +69,26 @@ public:
                                 }
                                 return false;
                             };
+                    if (init["kind"] == "IntegerLiteral" && init.contains("value")) {
+                        int value = std::stoi(init["value"].get<std::string>());
+                        emit_qubit_init(func, tmp, value, QBIT_WIDTH);
+                    } else if (init["kind"] == "BinaryOperator") {
+                        std::string op = init.value("opcode", "");
+                        std::string left_var, right_var;
+                        /*std::function<bool(const nlohmann::json&, std::string&)> find_ref =
+                            [&](const nlohmann::json& node, std::string& var) -> bool {
+                                if (node["kind"] == "DeclRefExpr" && node.contains("referencedDecl")) {
+                                    var = node["referencedDecl"].value("name", "");
+                                    return !var.empty();
+                                }
+                                if (node.contains("inner")) {
+                                    for (const auto& inner : node["inner"]) {
+                                        if (find_ref(inner, var))
+                                            return true;
+                                    }
+                                }
+                                return false;
+                            };*/
                         if (init.contains("inner") && init["inner"].size() >= 2 &&
                             find_ref(init["inner"][0], left_var) &&
                             find_ref(init["inner"][1], right_var) &&
@@ -92,6 +106,14 @@ public:
                             else if (op == "%")
                                 emit_quantum_modulo(func, result, vars[left_var], vars[right_var], QBIT_WIDTH);
                             vars[var_name] = result;
+                        }
+                    } else if (init["kind"] == "UnaryOperator" && init.value("opcode", "") == "-") {
+                        std::string var;
+                        if (find_ref(init["inner"][0], var) && vars.count(var)) {
+                        if (quantum_mode)
+                            emit_quantum_negate(func, tmp, vars[var], QBIT_WIDTH);
+                        else
+                            func.ops.push_back({QOpKind::Neg, tmp, vars[var]});
                         }
                     }
                 }

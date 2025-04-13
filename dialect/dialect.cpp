@@ -295,3 +295,31 @@ void emit_quantum_modulo(QMLIR_Function& func, const std::string& result, const 
     // Step 3: Compute remainder = a - product
     emit_quantum_subtractor(func, result, a, product, num_bits);   
 }
+
+void emit_quantum_negate(QMLIR_Function& func, const std::string& result, 
+                          const std::string& input, int num_bits) {
+    // Two's complement negation: invert all bits and add 1
+    
+    // Step 1: Create a temporary register for the inverted bits
+    std::string inverted = new_tmp("inv");
+    emit_qubit_alloc(func, inverted, num_bits);
+    
+    // Step 2: Invert all bits (apply X gate to each qubit)
+    for (int i = 0; i < num_bits; i++) {
+        // First copy the input to inverted using CNOT
+        func.ops.push_back({QOpKind::Custom, "", input + "[" + std::to_string(i) + "]", 
+                           inverted + "[" + std::to_string(i) + "]", 0, "q.cx"});
+        
+        // Then invert the bits using X gate
+        func.ops.push_back({QOpKind::Custom, "", inverted + "[" + std::to_string(i) + "]", 
+                           "", 0, "q.x"});
+    }
+    
+    // Step 3: Create constant 1
+    std::string plus_one = new_tmp("one");
+    emit_qubit_alloc(func, plus_one, num_bits);
+    emit_qubit_init(func, plus_one, 1, num_bits);
+    
+    // Step 4: Add 1 to the inverted bits to get two's complement
+    emit_quantum_adder(func, result, inverted, plus_one, num_bits);
+}
