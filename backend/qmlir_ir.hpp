@@ -19,6 +19,9 @@ enum class QOpKind {
     And,
     Or,
     Not,
+    Label,
+    Jump,
+    CBranch,
     Custom  // For quantum-specific operations.
 };
 
@@ -71,6 +74,15 @@ struct QMLIR_Op {
                 break;
             case QOpKind::Not:  
                 oss << "  %" << result << " = q.noti %" << lhs << " : i32";
+                break;
+            case QOpKind::Label:
+                oss << result << ":";
+                break;
+            case QOpKind::Jump:
+                oss << "  jump " << lhs;
+                break;
+            case QOpKind::CBranch:
+                oss << "  cbranch " << result << " " << lhs << " " << rhs; // if cond -> arg1 else arg2 
                 break;
             case QOpKind::Print:
                 oss << "  q.print %" << lhs;
