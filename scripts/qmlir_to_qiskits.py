@@ -786,7 +786,7 @@ def main():
     
     # Add simulator setup and execution
     qiskit_lines.append("# Use the Aer simulator")
-    qiskit_lines.append("simulator = AerSimulator()")
+    qiskit_lines.append("simulator = AerSimulator(method='matrix_product_state')")
     qiskit_lines.append("job = simulator.run(qc, shots=1024)")
     qiskit_lines.append("result = job.result()")
     qiskit_lines.append("counts = result.get_counts()")

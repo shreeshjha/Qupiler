@@ -52,7 +52,7 @@ public:
     
     if (quantum_mode) {
         // QUANTUM MODE - We need a loop unrolling approach for fixed iterations
-        
+         
         // Step 1: Create a quantum register to store the condition result
         std::string cond_reg = new_tmp("cond");
         emit_qubit_alloc(func, cond_reg, 1);  // 1 qubit for boolean result
@@ -61,8 +61,8 @@ public:
         int max_iterations = QBIT_WIDTH;  // Default max iterations equals register width
         
         // Step 3: Create a new register to track the current value of the loop variable
-        std::string current_var;
-        std::string updated_var;
+
+
         std::string target_var;
         
         // Find the variable that gets modified in the loop
@@ -90,7 +90,7 @@ public:
         
         if (!target_var.empty()) {
             // Start with the initial value of the variable
-            current_var = vars[target_var];
+            std::string current_var = vars[target_var];
             
             // Unroll the while loop for max_iterations
             for (int i = 0; i < max_iterations; i++) {
@@ -211,12 +211,14 @@ public:
                                         find_ref(stmt["inner"][1]["inner"][1], right_var)) {
                                         
                                         // Update variable references if needed
-                                        std::string left_reg = left_var == target_var ? current_var : vars[left_var];
-                                        std::string right_reg = right_var == target_var ? current_var : vars[right_var];
-                                        
+                                                                                                                        
                                         if (vars.count(left_var) && vars.count(right_var)) {
                                             // Compute the new value
-                                            updated_var = new_tmp("new_val");
+                                            
+                                            std::string left_reg = left_var == target_var ? current_var : vars[left_var];
+                                            std::string right_reg = right_var == target_var ? current_var : vars[right_var];
+
+                                            std::string updated_var = new_tmp("new_val");
                                             emit_qubit_alloc(func, updated_var, QBIT_WIDTH);
                                             
                                             if (op == "+") {
@@ -277,6 +279,42 @@ public:
                                                 });
                                             }
                                             
+                                            // NEW ADDITION: After the conditional update, we need to update the actual variable
+                                        // for the next iteration. This step was missing before.
+                                        
+                                        // 1. First, clear the original register (target_var)
+                                        for (int j = 0; j < QBIT_WIDTH; j++) {
+                                            // Check if the bit is 1 before clearing
+                                            // Create a temporary register to track if we need to flip
+                                            std::string check_bit = new_tmp("check");
+                                            emit_qubit_alloc(func, check_bit, 1);
+                                            
+                                            // Copy the bit value to check register
+                                            func.ops.push_back({
+                                                QOpKind::Custom, "",
+                                                vars[target_var] + "[" + std::to_string(j) + "]",
+                                                check_bit + "[0]",
+                                                0, "q.cx"
+                                            });
+                                            
+                                            // Conditionally apply X gate to clear the bit if it's 1
+                                            func.ops.push_back({
+                                                QOpKind::Custom, "",
+                                                check_bit + "[0]",
+                                                vars[target_var] + "[" + std::to_string(j) + "]",
+                                                0, "q.cx"
+                                            });
+                                        }
+                                        
+                                        // 2. Copy the final value back to the original variable register
+                                        for (int j = 0; j < QBIT_WIDTH; j++) {
+                                            func.ops.push_back({
+                                                QOpKind::Custom, "",
+                                                final_val + "[" + std::to_string(j) + "]",
+                                                vars[target_var] + "[" + std::to_string(j) + "]",
+                                                0, "q.cx"
+                                            });
+                                        }
                                             // Update the current variable for next iteration
                                             current_var = final_val;
                                         }
@@ -287,9 +325,82 @@ public:
                     }
                 }
             }
+            // NEW ADDITION: Handle the assignment of sum = x
+        // We need to find a variable declaration for sum and copy the final x value into it
+        std::function<bool(const nlohmann::json&)> find_sum_declaration = 
+            [&](const nlohmann::json& node) -> bool {
+                if (node["kind"] == "DeclStmt" && node.contains("inner") && node["inner"].is_array()) {
+                    for (const auto& decl : node["inner"]) {
+                        if (decl["kind"] == "VarDecl" && decl.value("name", "") == "sum") {
+                            // Found sum declaration
+                            std::string sum_var_name = decl.value("name", "");
+                            std::string sum_tmp = new_tmp("sum");
+                            emit_qubit_alloc(func, sum_tmp, QBIT_WIDTH);
+                            vars[sum_var_name] = sum_tmp;
+                            
+                            // Check if it has an initializer
+                            if (decl.contains("inner") && !decl["inner"].empty()) {
+                                const auto& init = decl["inner"][0];
+                                std::string init_var;
+                                
+                                // Simplified logic to find referenced variable
+                                std::function<bool(const nlohmann::json&, std::string&)> find_ref =
+                                    [&](const nlohmann::json& n, std::string& var) -> bool {
+                                        if (n["kind"] == "DeclRefExpr" && n.contains("referencedDecl")) {
+                                            var = n["referencedDecl"].value("name", "");
+                                            return !var.empty();
+                                        }
+                                        if (n.contains("inner")) {
+                                            for (const auto& inner : n["inner"]) {
+                                                if (find_ref(inner, var))
+                                                    return true;
+                                            }
+                                        }
+                                        return false;
+                                    };
+                                    
+                                if (find_ref(init, init_var) && vars.count(init_var)) {
+                                    // Copy the value of the referenced variable to sum
+                                    for (int j = 0; j < QBIT_WIDTH; j++) {
+                                        func.ops.push_back({
+                                            QOpKind::Custom, "",
+                                            vars[init_var] + "[" + std::to_string(j) + "]",
+                                            sum_tmp + "[" + std::to_string(j) + "]",
+                                            0, "q.cx"
+                                        });
+                                    }
+                                }
+                            }
+                            return true;
+                        }
+                    }
+                }
+
+                if (node.contains("inner")) {
+                    for (const auto& inner : node["inner"]) {
+                        if (find_sum_declaration(inner))
+                            return true;
+                    }
+                }
+                return false;
+            };
             
+        // Look for sum declaration in the parent function
+        std::function<void(const nlohmann::json&)> process_function_body =
+            [&](const nlohmann::json& node) {
+                if (node["kind"] == "CompoundStmt" && node.contains("inner") && node["inner"].is_array()) {
+                    for (size_t i = 0; i < node["inner"].size(); i++) {
+                        find_sum_declaration(node["inner"][i]);
+                    }
+                }
+            };
+            
+        // Get the parent function and scan it
+        if (while_json.contains("parent") && while_json["parent"].is_object()) {
+            process_function_body(while_json["parent"]);
+        }
             // After unrolling, update the variable in the main context
-            vars[target_var] = current_var;
+            //vars[target_var] = current_var;
         }
     }
     else {
