@@ -2,7 +2,7 @@
 
 void quantum_circuit() {
     int x = 1;
-    int y = 3;
+    int y = 4;
     while (x < y) {
         x = x + 1;
     }
