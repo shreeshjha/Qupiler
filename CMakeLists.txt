@@ -59,13 +59,32 @@ target_include_directories(direct_ir_gen PRIVATE
 # -----------------------------------------------------------------------------
 # 3) Quantum optimization library
 # -----------------------------------------------------------------------------
-add_library(QuantumPassLib STATIC
-  backend/passes/quantum_fusion_pass.cpp
+
+# collect all of pass implementation in backend/passes/
+file(GLOB QUANTUM_PASS_SRCS
+    ${CMAKE_SOURCE_DIR}/backend/passes/*.cpp
 )
 
-target_include_directories(QuantumPassLib PUBLIC
-  ${CMAKE_SOURCE_DIR}
+message(STATUS "⟳ QuantumPassLib will compile these sources:\n  ${QUANTUM_PASS_SRCS}")
+
+
+# Exclude the old amalgam driver:
+list(REMOVE_ITEM QUANTUM_PASS_SRCS
+    ${CMAKE_SOURCE_DIR}/backend/passes/quantum_fusion_pass_old.cpp
 )
+add_library(QuantumPassLib STATIC
+    ${QUANTUM_PASS_SRCS}
+)
+target_include_directories(QuantumPassLib PUBLIC
+    ${CMAKE_SOURCE_DIR}/backend/passes
+)
+
+
+#target_include_directories(QuantumPassLib
+#    PUBLIC
+#        ${CMAKE_SOURCE_DIR}
+#        ${CMAKE_SOURCE_DIR}/backend/passes
+#)
 
 # -----------------------------------------------------------------------------
 # 4) Frontend driver
