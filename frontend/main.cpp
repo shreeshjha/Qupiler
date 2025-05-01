@@ -134,11 +134,20 @@ int main(int argc, char* argv[]) {
         if (std::string(argv[i]) == "--run-tests") {
             run_tests = true;
             std::cout << "Running optimization test suite...\n";
-            // Code to run the test suite would go here
-            // For now, just compile and run the test program separately
-            std::string test_cmd = "g++ -std=c++17 optimization_test.cpp -o run_tests && ./run_tests";
-            std::system(test_cmd.c_str());
-            return 0;
+            // Find the optimization_test executab;e in the same directory as frontend_driver
+            fs::path executable_path = fs::path(argv[0]).parent_path() / "optimization_test";
+    
+    std::cout << "Looking for optimization_test at: " << executable_path << "\n";
+    
+    if (fs::exists(executable_path)) {
+        std::cout << "Found optimization_test executable, running tests...\n";
+        return std::system(executable_path.string().c_str());
+    } else {
+        std::cerr << "Error: optimization_test executable not found at " << executable_path << "\n";
+        std::cerr << "Make sure to build it with 'cmake .. && make'\n";
+        return 1;
+        }
+            
         }
     }
 
