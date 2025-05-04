@@ -6,7 +6,9 @@
 //   q.sub  %d, %r, %r
 // →  q.init %d, 0
 int foldInitSubZero(std::string &content) {
-    std::regex pattern(R"((\s*)q\.init\s+(%\w+),\s*0\s*\n\1q\.sub\s+(%\w+),\s*\2,\s*\2)");
+    //std::regex pattern(R"((\s*)q\.init\s+(%\w+),\s*0\s*\n\1q\.sub\s+(%\w+),\s*\2,\s*\2)");
+    std::regex pattern(R"((\s*)q\.init\s+(%\w+\[\d+\]),\s*0\s*\n\1q\.sub\s+(%\w+),\s*\2,\s*\2)");
+
     int count=0;
     std::smatch m;
     std::string tmp = content;

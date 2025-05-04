@@ -56,7 +56,7 @@ bool optimizeMlirFile(const std::string &inFile,
   run_pass(foldInitSubZero,           "ConstantFolding");
   run_pass(foldAddZero,               "ExtendedConstantFolding");
   run_pass(commuteCancelCx,           "CommutativeCancellation");
-  //run_pass(hoistSingleAlloc,          "AncillaHoist");
+  run_pass(hoistSingleAlloc,          "AncillaHoist");
   run_pass(fuseHighLevel,             "HighLevelFusion");
   run_pass(fuseHighLevelExtended,     "HighLevelFusionExtended");
 
