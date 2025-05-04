@@ -19,24 +19,36 @@ int hoistSingleAlloc(std::string &content) {
         names.push_back(m[1]);
         tmp = m.suffix();
     }
-    if (names.size()<2) return 0;
+    
+    if (names.size() < 2) return 0;
+    
     // build new alloc
     std::string ancName = "%anc";
     int n = (int)names.size();
     std::ostringstream hoist;
-    hoist << ancName << " = q.alloc : !qreg<" << n << ">\n";
+    hoist << "  " << ancName << " = q.alloc : !qreg<" << n << ">\n";
+    
     // remove old allocs
     content = std::regex_replace(content, alloc1, "");
-    // insert hoist at top
-    content = hoist.str() + content;
-    // rewrite uses
-    for (int i=0;i<names.size();i++) {
-        std::string from = names[i] + "\\[";
-        std::string to   = ancName + "[" + std::to_string(i) + "]";
-        content = std::regex_replace(content,
-            std::regex(names[i] + R"(\[(\d+)\])"),
-            to);
+    
+    // insert hoist after the function declaration
+    std::regex funcDecl(R"(func\s+@\w+\(\)\s*->\s*\(\)\s*\{\s*\n)");
+    if (std::regex_search(content, m, funcDecl)) {
+        // Fix: Convert m[0] to string before concatenation
+        std::string match_str = m[0].str();
+        content = std::regex_replace(content, funcDecl, 
+                                   match_str + hoist.str());
+    } else {
+        // If function declaration not found, insert at top (fallback)
+        content = hoist.str() + content;
     }
+    
+    // rewrite uses
+    for (int i = 0; i < names.size(); i++) {
+        std::string pattern = names[i] + R"(\[(\d+)\])";
+        std::string replacement = ancName + "[" + std::to_string(i) + "]";
+        content = std::regex_replace(content, std::regex(pattern), replacement);
+    }
+    
     return (int)names.size();
 }
-

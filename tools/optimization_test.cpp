@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <unordered_map>
 #include <algorithm>
+#include <regex>
 #include "../backend/passes/quantum_fusion_pass.h"
 
 // Declare the individual optimization functions if not directly accessible
@@ -33,6 +34,7 @@ struct OptimizationResult {
     int count;
     bool success;
 };
+
 
 // Function prototypes
 void generate_optimization_test_cases(const std::string& output_dir);
@@ -221,6 +223,7 @@ void generate_optimization_test_cases(const std::string& output_dir) {
 }
 
 // Run all tests and collect results
+/*
 std::vector<OptimizationResult> run_optimization_tests(const std::string& test_dir) {
     std::cout << "\nRunning optimization tests...\n";
     
@@ -272,6 +275,76 @@ std::vector<OptimizationResult> run_optimization_tests(const std::string& test_d
                             result.optimizations_applied = summary_line.substr(namesStart);
                             // Remove trailing whitespace or punctuation
                             result.optimizations_applied.erase(result.optimizations_applied.find_last_not_of(" \n\r\t.") + 1);
+                        }
+                        
+                        // Consider the test successful if at least one optimization was applied
+                        result.success = (result.count > 0);
+                    }
+                }
+                
+                results.push_back(result);
+            } else {
+                std::cout << "Optimization failed!\n";
+                result.optimizations_applied = "ERROR";
+                results.push_back(result);
+            }
+        }
+    }
+    
+    return results;
+}
+*/ 
+
+// Run all tests and collect results
+std::vector<OptimizationResult> run_optimization_tests(const std::string& test_dir) {
+    std::cout << "\nRunning optimization tests...\n";
+    
+    std::vector<OptimizationResult> results;
+    
+    for (const auto& entry : fs::directory_iterator(test_dir)) {
+        if (entry.path().extension() == ".mlir") {
+            std::string infile = entry.path().string();
+            std::string outfile = entry.path().stem().string() + ".opt.mlir";
+            
+            std::cout << "\nTesting: \"" << entry.path().filename() << "\"\n";
+            
+            OptimizationResult result;
+            result.test_name = entry.path().filename().string();
+            result.count = 0;
+            result.success = false;
+            result.optimizations_applied = "";
+            
+            if (optimizeMlirFile(infile, outfile)) {
+                // Read the optimized file to check what optimizations were applied
+                std::ifstream in(outfile);
+                std::string line;
+                std::string summary_line;
+                
+                // Read the first line which should be the summary header
+                if (std::getline(in, line) && line.find("Quantum Fusion Optimization Summary") != std::string::npos) {
+                    // Second line contains the actual summary
+                    if (std::getline(in, summary_line)) {
+                        std::cout << summary_line << "\n";
+                        
+                        // Parse the optimization count without using regex
+                        size_t count_start = summary_line.find("// ") + 3;
+                        if (count_start != std::string::npos + 3) {
+                            size_t count_end = summary_line.find(" optimizations");
+                            if (count_end != std::string::npos) {
+                                std::string count_str = summary_line.substr(count_start, count_end - count_start);
+                                try {
+                                    result.count = std::stoi(count_str);
+                                } catch(...) {
+                                    std::cerr << "Error parsing optimization count\n";
+                                }
+                            }
+                        }
+                        
+                        // Extract the list of applied optimizations without using regex
+                        size_t applied_start = summary_line.find("applied: ");
+                        if (applied_start != std::string::npos) {
+                            applied_start += 9; // Length of "applied: "
+                            result.optimizations_applied = summary_line.substr(applied_start);
                         }
                         
                         // Consider the test successful if at least one optimization was applied

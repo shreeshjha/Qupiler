@@ -2,9 +2,8 @@
 #include <regex> 
 
 int eliminateAdjacentCcx(std::string &content) {
-    std::regex pattern(R"((\s*)(q\.ccx\s+(%\w+),\s*(%\w+),\s*(%\w+))(\s*)\n\1\5\4\3)");
-    // simpler: actually match identical three-qubit Toffoli twice
-    pattern = std::regex(R"((\s*)(q\.ccx\s+(%\w+)\s*,\s*(%\w+)\s*,\s*(%\w+))\s*\n\1\2)");
+    std::regex pattern(R"((\s*)(q\.ccx\s+(%\w+\[\d+\])\s*,\s*(%\w+\[\d+\])\s*,\s*(%\w+\[\d+\]))\s*\n\1\2)");
+    
     int count = 0;
     std::smatch m;
     std::string tmp = content;

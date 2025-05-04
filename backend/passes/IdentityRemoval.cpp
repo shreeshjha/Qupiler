@@ -8,9 +8,9 @@
 
 int removeIdentityOps(std::string &content) {
     int count = 0;
-    // 1) q.cx %a, %a => no-op 
+    // 1) q.cx %a[i], %a[i] => no-op 
     {
-        std::regex pat(R"((\s*)q\.cx\s+(\%\w+)\s*,\s*\2\s*\n)");
+        std::regex pat(R"((\s*)q\.cx\s+(%\w+\[\d+\])\s*,\s*\2\s*\n)"); 
         std::smatch m;
         std::string tmp = content;
         while(std::regex_search(tmp, m, pat)) {
@@ -24,17 +24,34 @@ int removeIdentityOps(std::string &content) {
 
     // 2) q.ccx %a, %a, %b  or q.ccx %a, %b, %a  => no-op
     {
-        std::regex pat(R"((\s*)q\.ccx\s+(\%\w+)\s*,\s*\2\s*,\s*(\%\w+))");
-        int c2 = std::count_if(
-            std::sregex_iterator(content.begin(), content.end(), pat),
-            std::sregex_iterator(), [](auto&){return true;}
-        );
-        if (c2) {
+        std::regex pat1(R"((\s*)q\.ccx\s+(%\w+\[\d+\])\s*,\s*\2\s*,\s*(%\w+\[\d+\])\s*\n)");
+        std::regex pat2(R"((\s*)q\.ccx\s+(%\w+\[\d+\])\s*,\s*(%\w+\[\d+\])\s*,\s*\2\s*\n)");
+
+        int c1 = 0;
+        std::string tmp = content;
+        std::smatch m;
+
+        while (std::regex_search(tmp, m, pat1)) {
+            ++c1;
+            tmp = m.suffix();
+        }
+
+        if(c1) {
+            count += c1;
+            content = std::regex_replace(content, pat1, "$1// OPTIMIZED: removed identity CCX (duplicate controls)\n");
+        }
+
+        int c2 = 0;
+        tmp = content;
+        while (std::regex_search(tmp, m, pat2)) {
+            ++c2;
+            tmp = m.suffix();
+        }
+
+        if(c2) {
             count += c2;
-            content = std::regex_replace(
-              content, pat,
-              "$1// OPTIMIZED: removed identity CCX (duplicate controls)\n"
-            );
+            content = std::regex_replace(content, pat2, 
+                "$1// OPTIMIZED: removed identity CCX (control equals target)\n");
         }
     }
 
