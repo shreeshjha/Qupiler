@@ -3,6 +3,6 @@
 #include <string>
 
 int fuseHighLevelExtended(std::string &content);
-
+int fuseExtendedRippleCarryAdder(std::string &content);
 
 #endif 

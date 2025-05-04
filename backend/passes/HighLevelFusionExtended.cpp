@@ -93,7 +93,7 @@ int fuseHighLevelExtended(std::string &content) {
                 
                 // If we found enough pairs, and there's a ripple-carry adder pattern
                 // following it, we might have a multiplier
-                if (ccx_cx_pairs >= 3) {
+                if (ccx_cx_pairs >= 1) {
                     // Look for evidence of a ripple-carry adder
                     bool has_ripple_carry = false;
                     for (size_t k = j; k < j + 20 && k < lines.size(); ++k) {

@@ -7,8 +7,7 @@
 //   q.add  %d, %r, %r   =>  q.init %d, 0
 int foldAddZero(std::string &content) {
     //std::regex pat(R"((\s*)q\.init\s+(%\w+),\s*0\s*\n\1q\.add\s+(%\w+),\s*\2\s*,\s*\2)");
-    std::regex pat(R"((\s*)q\.init\s+(%\w+\[\d+\]),\s*0\s*\n\1q\.add\s+(%\w+),\s*\2\s*,\s*\2)");
-
+    std::regex pat(R"((\s*)q\.init\s+(%\w+\[\d+\])\s*,\s*0[^\n]*\n\1q\.add\s+(%\w+)\s*,\s*\2\s*,\s*\2)");
     int count = 0;
     std::string tmp = content;
     std::smatch m;

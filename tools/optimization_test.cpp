@@ -109,9 +109,9 @@ void generate_optimization_test_cases(const std::string& output_dir) {
         std::ofstream out(output_dir + "/const_fold_test.mlir");
         out << "func @const_fold_test() -> () {\n";
         out << "  %q0 = q.alloc : !qreg<2>\n";
-        out << "  q.init %q0, 0 : i32\n";
+        out << "  q.init %q0[0], 0 : i32\n";
         out << "  %q1 = q.alloc : !qreg<2>\n";
-        out << "  q.sub %q1, %q0, %q0\n";  // Should be folded to q.init %q1, 0
+        out << "  q.sub %q1, %q0[0], %q0[0]\n";  // Should be folded to q.init %q1, 0
         out << "  %t0 = q.measure %q1 : !qreg -> i32\n";
         out << "  q.print %t0\n";
         out << "  return\n";
@@ -124,9 +124,9 @@ void generate_optimization_test_cases(const std::string& output_dir) {
         std::ofstream out(output_dir + "/ext_const_fold_test.mlir");
         out << "func @ext_const_fold_test() -> () {\n";
         out << "  %q0 = q.alloc : !qreg<2>\n";
-        out << "  q.init %q0, 0 : i32\n";
+        out << "  q.init %q0[0], 0 : i32\n";
         out << "  %q1 = q.alloc : !qreg<2>\n";
-        out << "  q.add %q1, %q0, %q0\n";  // Should be folded to q.init %q1, 0
+        out << "  q.add %q1, %q0[0], %q0[0]\n";  // Should be folded to q.init %q1, 0
         out << "  %t0 = q.measure %q1 : !qreg -> i32\n";
         out << "  q.print %t0\n";
         out << "  return\n";
@@ -192,9 +192,9 @@ void generate_optimization_test_cases(const std::string& output_dir) {
         std::ofstream out(output_dir + "/add_zero_test.mlir");
         out << "func @add_zero_test() -> () {\n";
         out << "  %q0 = q.alloc : !qreg<2>\n";
-        out << "  q.init %q0, 0 : i32\n";  // Initialize to 0
+        out << "  q.init %q0[0], 0 : i32\n";  // Initialize to 0
         out << "  %q1 = q.alloc : !qreg<2>\n";
-        out << "  q.add %q1, %q0, %q0\n";  // q1 = 0 + 0, should fold to init q1, 0
+        out << "  q.add %q1, %q0[0], %q0[0]\n";  // q1 = 0 + 0, should fold to init q1, 0
         out << "  %t0 = q.measure %q1 : !qreg -> i32\n";
         out << "  q.print %t0\n";
         out << "  return\n";
@@ -219,6 +219,33 @@ void generate_optimization_test_cases(const std::string& output_dir) {
         out << "  return\n";
         out << "}\n";
         std::cout << "Created test for HighLevelFusion\n";
+    }
+
+    // Test case 12: Extended ripple-carry adder fusion
+    {
+        std::ofstream out(output_dir + "/high_level_fusion_ext_test.mlir");
+        out << "func @high_level_fusion_ext_test() -> () {\n";
+        out << "  %a = q.alloc : !qreg<2>\n";
+        out << "  %b = q.alloc : !qreg<2>\n";
+        out << "  %r = q.alloc : !qreg<3>\n";
+        out << "  q.init %a[0], 1 : i32\n";
+        out << "  q.init %a[1], 0 : i32\n";
+        out << "  q.init %b[0], 1 : i32\n";
+        out << "  q.init %b[1], 1 : i32\n";
+        out << "  q.init %r[0], 0 : i32\n";
+        out << "  q.init %r[1], 0 : i32\n";
+        out << "  q.init %r[2], 0 : i32\n";
+        out << "  q.cx %a[0], %r[0]\n";
+        out << "  q.cx %b[0], %r[0]\n";
+        out << "  q.ccx %a[0], %b[0], %r[1]\n";
+        out << "  q.cx %a[1], %r[1]\n";
+        out << "  q.cx %b[1], %r[1]\n";
+        out << "  q.ccx %a[1], %b[1], %r[2]\n";
+        out << "  %t0 = q.measure %r : !qreg -> i32\n";
+        out << "  q.print %t0\n";
+        out << "  return\n";
+        out << "}\n";
+        std::cout << "Created test for HighLevelFusionExtended\n";
     }
 }
 

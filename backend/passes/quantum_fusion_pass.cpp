@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+
 #include <unordered_set>
 
 
@@ -57,8 +58,11 @@ bool optimizeMlirFile(const std::string &inFile,
   run_pass(foldAddZero,               "ExtendedConstantFolding");
   run_pass(commuteCancelCx,           "CommutativeCancellation");
   run_pass(hoistSingleAlloc,          "AncillaHoist");
-  run_pass(fuseHighLevel,             "HighLevelFusion");
+  run_pass(fuseExtendedRippleCarryAdder, "HighLevelFusionExtended");
   run_pass(fuseHighLevelExtended,     "HighLevelFusionExtended");
+  run_pass(fuseHighLevel,             "HighLevelFusion");
+  
+
 
   
   // Create a prepass optimization to identify potential patterns

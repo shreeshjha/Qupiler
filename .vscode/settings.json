@@ -52,6 +52,7 @@
         "variant": "cpp",
         "vector": "cpp",
         "memory": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "regex": "cpp"
     }
 }
