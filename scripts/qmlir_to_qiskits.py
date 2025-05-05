@@ -922,6 +922,7 @@ register_versions = {}  # Track different versions of the same logical register
 def emit_header():
     header = [
         "from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister",
+        "from qiskit import transpile",
         "from qiskit_aer import AerSimulator",
         "from qiskit.visualization import plot_histogram",
         "import matplotlib.pyplot as plt",

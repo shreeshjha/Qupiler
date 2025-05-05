@@ -45,7 +45,7 @@ int hoistSingleAlloc(std::string &content) {
     
     // rewrite uses
     for (int i = 0; i < names.size(); i++) {
-        std::string pattern = names[i] + R"(\[(\d+)\])";
+        std::string pattern = "%" + names[i] + R"(\[(\d+)\])";
         std::string replacement = ancName + "[" + std::to_string(i) + "]";
         content = std::regex_replace(content, std::regex(pattern), replacement);
     }
