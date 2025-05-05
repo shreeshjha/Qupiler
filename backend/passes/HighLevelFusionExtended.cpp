@@ -1,9 +1,11 @@
+/*
 #include <string>
 #include <regex>
 #include <vector>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+*/
 // Fuse long sequences of CX/CCX that implement a ripple-carry adder
 // into a single custom "q.fused_adder" op
 /*
@@ -34,7 +36,9 @@ int fuseHighLevelExtended(std::string &content) {
     }
     return 0;
 }
-*/ 
+*/
+
+/*
 
 // Detect ripple-carry adder circuit patterns and replace them with a single q.fused_adder operation
 int fuseHighLevelExtended(std::string &content) {
@@ -236,4 +240,146 @@ int fuseExtendedRippleCarryAdder(std::string &content) {
     
     return 0;
 }
+*/ 
 
+#include <string>
+#include <regex>
+#include <vector>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
+#include <set>
+
+// Track all variable definitions and uses
+void collectDefinedVars(const std::vector<std::string>& lines, 
+                        std::set<std::string>& definedVars, 
+                        std::unordered_map<std::string, std::set<size_t>>& varUses) {
+    std::regex defRe(R"(%(\w+)\s*=\s*q\.)");
+    std::regex useRe(R"(%(\w+)(?:\[\d+\])?)");
+    
+    for (size_t i = 0; i < lines.size(); ++i) {
+        // Track definitions
+        std::smatch m;
+        std::string line = lines[i];
+        if (std::regex_search(line, m, defRe)) {
+            definedVars.insert(m[1]);
+        }
+        
+        // Track uses
+        auto begin = std::sregex_iterator(line.begin(), line.end(), useRe);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            std::string var = (*it)[1];
+            varUses[var].insert(i);
+        }
+    }
+}
+
+// Check if any variable in the list is used after the given line
+bool varsUsedLater(const std::unordered_map<std::string, std::set<size_t>>& varUses,
+                  const std::vector<std::string>& varsList,
+                  size_t afterLine) {
+    for (const auto& var : varsList) {
+        auto it = varUses.find(var);
+        if (it != varUses.end()) {
+            for (size_t useLine : it->second) {
+                if (useLine > afterLine) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Fuse a ripple-carry adder pattern, but safely preserve variable definitions
+int fuseExtendedRippleCarryAdder(std::string &content) {
+    std::istringstream iss(content);
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(iss, line)) {
+        lines.push_back(line);
+    }
+    
+    // First collect all variable definitions and their uses
+    std::set<std::string> definedVars;
+    std::unordered_map<std::string, std::set<size_t>> varUses;
+    collectDefinedVars(lines, definedVars, varUses);
+    
+    for (size_t i = 0; i + 6 < lines.size(); i++) {
+        // Look for a sequence of operations that form an adder
+        if (lines[i].find("q.cx") != std::string::npos && 
+            lines[i+1].find("q.cx") != std::string::npos && 
+            lines[i+2].find("q.ccx") != std::string::npos) {
+            
+            // Extract register names
+            std::regex cxRe(R"(q\.cx\s+%(\w+)\[(\d+)\],\s*%(\w+)\[(\d+)\])");
+            std::smatch m1, m2;
+            
+            if (std::regex_search(lines[i], m1, cxRe) && 
+                std::regex_search(lines[i+1], m2, cxRe)) {
+                
+                std::string a_reg = m1[1];
+                std::string result_reg = m1[3];
+                std::string b_reg = m2[1];
+                
+                // Verify all registers are defined
+                if (definedVars.find(a_reg) == definedVars.end() ||
+                    definedVars.find(b_reg) == definedVars.end() ||
+                    definedVars.find(result_reg) == definedVars.end()) {
+                    continue; // Skip if any register is not defined
+                }
+                
+                // Find where this adder operation ends - use pattern-based detection
+                size_t end_idx = i + 3;
+                // Keep track of all intermediate registers used
+                std::vector<std::string> intermediateRegs;
+                
+                // Extract intermediate registers used in the pattern
+                std::regex ccxRe(R"(q\.ccx\s+%\w+\[\d+\],\s*%\w+\[\d+\],\s*%(\w+)\[\d+\])");
+                if (std::regex_search(lines[i+2], m1, ccxRe)) {
+                    intermediateRegs.push_back(m1[1]);
+                }
+                
+                // Only proceed if we have a complete pattern that's safe to optimize
+                if (!intermediateRegs.empty()) {
+                    // Check if any intermediate register is used later
+                    if (varsUsedLater(varUses, intermediateRegs, end_idx)) {
+                        continue; // Skip optimization if registers needed later
+                    }
+                    
+                    // Create a fused ripple-carry adder
+                    std::string indent = lines[i].substr(0, lines[i].find("q.cx"));
+                    std::string replacement = indent + "// OPTIMIZED: fused ripple-carry adder\n" +
+                                             indent + "q.fused_ripple_adder %" + result_reg + ", %" + 
+                                             a_reg + ", %" + b_reg + "\n";
+                    
+                    // Replace the pattern
+                    std::ostringstream out;
+                    for (size_t j = 0; j < i; j++) {
+                        out << lines[j] << "\n";
+                    }
+                    out << replacement;
+                    for (size_t j = end_idx + 1; j < lines.size(); j++) {
+                        out << lines[j] << "\n";
+                    }
+                    
+                    content = out.str();
+                    return 1;
+                }
+            }
+        }
+    }
+    
+    return 0;
+}
+
+// Detect ripple-carry adder circuit patterns more conservatively
+int fuseHighLevelExtended(std::string &content) {
+    // For now, make this function a no-op to prevent issues
+    // until we can implement a safer, more robust version
+    return 0;
+    
+    /* Implementation would go here in the future, but for safety,
+       return 0 to effectively disable this optimization. */
+}
