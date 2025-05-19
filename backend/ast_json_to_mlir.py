@@ -5,129 +5,103 @@ from xdsl.ir import Block, Region
 from xdsl.dialects.builtin import IntegerAttr, StringAttr, ModuleOp, i1, i32
 from xdsl.dialects.func import ReturnOp
 from quantum_dialect import (
-    QuantumInitOp, QuantumNotOp, QuantumCNOTOp,
-    QuantumMeasureOp, QuantumFuncOp, register_quantum_dialect
+    register_quantum_dialect,
+    QuantumInitOp, QuantumNotOp, QuantumCNOTOp, QuantumMeasureOp,
+    QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
+    QuantumXorOp, QuantumAndOp, QuantumOrOp, QuantumFuncOp
 )
 
+# SSA name generator
 ssa_counter = 0
-
 def next_ssa():
     global ssa_counter
     ssa_counter += 1
     return f"%q{ssa_counter}"
 
+# Map C variable names to SSAValue
 ssa_map = {}
 
-# === Helpers === #
-def build_basic_quantum_func(ctx: Context, func_name: str) -> QuantumFuncOp:
+# Build quantum.func
+def build_quantum_func(ctx: Context, name: str) -> QuantumFuncOp:
     func = QuantumFuncOp(
-        attributes={"func_name": StringAttr(func_name)},
+        attributes={"func_name": StringAttr(name)},
         regions=[Region()]
     )
-    block = Block()
-    func.regions[0].add_block(block)
+    entry_block = Block()
+    func.regions[0].add_block(entry_block)
     return func
 
-
-def find_func_body(node, name):
-    """
-    Recursively search for FunctionDecl named `name` and return its CompoundStmt inner list.
-    """
-    if node.get("kind") == "FunctionDecl" and node.get("name") == name:
+# Find function body recursively
+def find_func_body(node, target_name: str):
+    if node.get("kind") == "FunctionDecl" and node.get("name") == target_name:
         for child in node.get("inner", []):
             if child.get("kind") == "CompoundStmt":
                 return child.get("inner", [])
         return []
     for child in node.get("inner", []):
-        result = find_func_body(child, name)
-        if result:
-            return result
-    return []
-    for child in node.get("inner", []):
-        result = find_func_body(child, name)
-        if result:
-            return result
+        res = find_func_body(child, target_name)
+        if res:
+            return res
     return []
 
-
+# Translate statements
 def translate_stmt(stmt, block):
-    kind = stmt.get('kind')
+    kind = stmt.get("kind")
     if kind == "DeclStmt":
-        # Variable declaration with optional initializer
-        decl = stmt.get("inner", [])[0]
-        name = decl.get("name")
-        val = 0
-        for init in decl.get("inner", []):
-            if init.get("kind") == "IntegerLiteral":
-                val = int(init.get("value", 0))
-        init_op = QuantumInitOp(result_types=[i32], attributes={"type": i32, "value": IntegerAttr(val, i32)})
-        block.add_op(init_op)
-        ssa_map[name] = init_op.results[0]
+        for decl in stmt.get("inner", []):
+            if decl.get("kind") != "VarDecl": continue
+            var = decl.get("name")
+            init_val = 0
+            # find initializer expr: BinaryOperator or IntegerLiteral
+            expr = None
+            for child in decl.get("inner", []):
+                if child.get("kind") in ("BinaryOperator", "IntegerLiteral"):
+                    expr = child
+                    break
+            if expr:
+                k2 = expr.get("kind")
+                if k2 == "IntegerLiteral":
+                    init_val = int(expr.get("value", 0))
+                elif k2 == "BinaryOperator":
+                    children = expr.get("inner", [])
+                    refs = [c.get("inner", [])[0].get("name") for c in children if c.get("kind") == "DeclRefExpr"]
+                    if len(refs) == 2:
+                        lhs, rhs = refs
+                        op = expr.get("opcode")
+                        arith = {"+": QuantumAddOp, "-": QuantumSubOp, "*": QuantumMulOp, "/": QuantumDivOp}
+                        logic = {"^": QuantumXorOp, "&&": QuantumAndOp, "||": QuantumOrOp}
+                        if op in arith and lhs in ssa_map and rhs in ssa_map:
+                            o = arith[op](result_types=[i32], operands=[ssa_map[lhs], ssa_map[rhs]])
+                            block.add_op(o); ssa_map[var] = o.results[0]; continue
+                        if op in logic and lhs in ssa_map and rhs in ssa_map:
+                            o = logic[op](result_types=[i1], operands=[ssa_map[lhs], ssa_map[rhs]])
+                            block.add_op(o); ssa_map[var] = o.results[0]; continue
+            init_op = QuantumInitOp(result_types=[i32], attributes={"type": i32, "value": IntegerAttr(init_val, i32)})
+            block.add_op(init_op)
+            ssa_map[var] = init_op.results[0]
+    elif kind == "CallExpr" and stmt.get("callee", {}).get("name") == "printf":
+        args = stmt.get("args", [])
+        if args:
+            for c in args[0].get("inner", []):
+                if c.get("kind") == "DeclRefExpr":
+                    nm = c.get("inner", [])[0].get("name")
+                    if nm in ssa_map:
+                        m = QuantumMeasureOp(result_types=[i1], operands=[ssa_map[nm]])
+                        block.add_op(m)
+                    break
 
-    elif kind == "BinaryOperator":
-        opcode = stmt.get("opcode")
-        if opcode == "-":
-            # x - y
-            children = stmt.get("inner", [])
-            lhs_ref = children[0].get("inner", [])[0].get("name")
-            rhs_ref = children[1].get("inner", [])[0].get("name")
-            # simulate subtraction as not + cnot
-            not_rhs = QuantumNotOp(ssa_map[rhs_ref])
-            block.add_op(not_rhs)
-            cnot = QuantumCNOTOp(ssa_map[lhs_ref], not_rhs.results[0])
-            block.add_op(cnot)
-            temp_name = next_ssa()
-            ssa_map[temp_name] = cnot.results[0]
-
-    elif kind == "CallExpr":
-        callee = stmt.get("callee", {}).get("name")
-        if callee == "printf":
-            args = stmt.get("args", [])
-            if args:
-                arg_node = args[0]
-                # drill into DeclRefExpr
-                name = arg_node.get("inner", [])[0].get("name")
-                meas = QuantumMeasureOp(ssa_map[name])
-                block.add_op(meas)
-
-
-# === Entry === #
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: python ast_json_to_mlir.py <input.json> <output.mlir>")
-        sys.exit(1)
-
-    input_json = sys.argv[1]
-    output_mlir = sys.argv[2]
-
-    with open(input_json) as f:
-        ast = json.load(f)
-
-    ctx = Context()
-    register_quantum_dialect(ctx)
-
-    module = ModuleOp([])
-    if not module.regions:
-        module.add_region(Region())
-    if not module.regions[0].blocks:
-        module.regions[0].add_block(Block())
-
-    func = build_basic_quantum_func(ctx, "quantum_circuit")
-    block = func.regions[0].blocks[0]
-
-    stmts = find_func_body(ast, "quantum_circuit")
-    for stmt in stmts:
-        translate_stmt(stmt, block)
-
-    block.add_op(ReturnOp())
-
-    # Insert the function into the module
-    module.regions[0].blocks[0].add_op(func)
-
-    with open(output_mlir, "w") as f:
-        f.write(str(module))
-
-
+# Main
 if __name__ == "__main__":
-    main()
+    if len(sys.argv)!=3: print("Usage: ..."); sys.exit(1)
+    ast_file, mlir_out = sys.argv[1], sys.argv[2]
+    ast = json.load(open(ast_file))
+    ctx = Context(); register_quantum_dialect(ctx)
+    module = ModuleOp([])
+    if not module.regions: module.add_region(Region())
+    if not module.regions[0].blocks: module.regions[0].add_block(Block())
+    func = build_quantum_func(ctx, "quantum_circuit")
+    blk = func.regions[0].blocks[0]
+    for st in find_func_body(ast, "quantum_circuit"): translate_stmt(st, blk)
+    blk.add_op(ReturnOp()); module.regions[0].blocks[0].add_op(func)
+    with open(mlir_out, "w") as f: f.write(str(module))
 

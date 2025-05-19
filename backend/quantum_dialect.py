@@ -1,31 +1,28 @@
-from xdsl.ir import Dialect, OpResult, SSAValue, Region, Block
-from xdsl.irdl import irdl_op_definition, Operand, AttrConstraint, result_def, operand_def
-from xdsl.irdl import attr_def, region_def
-from xdsl.irdl import IRDLOperation
-from xdsl.dialects.builtin import FunctionType, StringAttr, IntegerAttr, ModuleOp, IntAttr
-from xdsl.dialects import builtin
-from xdsl.dialects.func import FuncOp 
+from xdsl.ir import Dialect, Region, Block
+from xdsl.irdl import IRDLOperation, irdl_op_definition, Operand, result_def, operand_def, attr_def, region_def
+from xdsl.dialects.builtin import StringAttr, IntegerAttr, i1, i32, Builtin
 from xdsl.context import Context
-from xdsl.dialects.builtin import i1, i32
-from xdsl.ir import Attribute
 
-# === Dialect Definition === # 
+# === Quantum Dialect Definitions === #
 
 @irdl_op_definition
 class QuantumInitOp(IRDLOperation):
+    """Allocate and initialize a quantum register."""
     name = "quantum.init"
-    type_attr = attr_def(Attribute)
-    value_attr = attr_def(Attribute)
+    type_attr = attr_def(StringAttr)     # element type attribute
+    value_attr = attr_def(IntegerAttr)   # initial value attribute
     result = result_def()
 
 @irdl_op_definition
 class QuantumNotOp(IRDLOperation):
+    """Apply Pauli-X (NOT) gate."""
     name = "quantum.not"
     operand = operand_def()
     result = result_def()
 
 @irdl_op_definition
 class QuantumCNOTOp(IRDLOperation):
+    """Apply controlled-NOT gate."""
     name = "quantum.cnot"
     control = operand_def()
     target = operand_def()
@@ -33,31 +30,84 @@ class QuantumCNOTOp(IRDLOperation):
 
 @irdl_op_definition
 class QuantumMeasureOp(IRDLOperation):
+    """Measure a qubit into a classical bit."""
     name = "quantum.measure"
     qubit = operand_def()
     result = result_def()
 
 @irdl_op_definition
 class QuantumFuncOp(IRDLOperation):
+    """Quantum function container."""
     name = "quantum.func"
     body = region_def()
     func_name = attr_def(StringAttr)
 
-# Create a dialect factory function
-def get_quantum_dialect():
-    return Dialect(
-            "quantum",
-            [QuantumInitOp, QuantumNotOp, QuantumCNOTOp, QuantumMeasureOp, QuantumFuncOp],
-            []
-    )
+# === Arithmetic Operations === #
+@irdl_op_definition
+class QuantumAddOp(IRDLOperation):
+    """Quantum ripple-carry adder."""
+    name = "quantum.add"
+    lhs = operand_def()
+    rhs = operand_def()
+    result = result_def()
 
-# Registering the dialect 
+@irdl_op_definition
+class QuantumSubOp(IRDLOperation):
+    """Quantum subtractor."""
+    name = "quantum.sub"
+    lhs = operand_def()
+    rhs = operand_def()
+    result = result_def()
+
+@irdl_op_definition
+class QuantumMulOp(IRDLOperation):
+    """Quantum multiplier."""
+    name = "quantum.mul"
+    lhs = operand_def()
+    rhs = operand_def()
+    result = result_def()
+
+@irdl_op_definition
+class QuantumDivOp(IRDLOperation):
+    """Quantum divider."""
+    name = "quantum.div"
+    lhs = operand_def()
+    rhs = operand_def()
+    result = result_def()
+
+# === Boolean Logic Gates === #
+@irdl_op_definition
+class QuantumXorOp(IRDLOperation):
+    """Quantum XOR gate."""
+    name = "quantum.xor"
+    a = operand_def()
+    b = operand_def()
+    result = result_def()
+
+@irdl_op_definition
+class QuantumAndOp(IRDLOperation):
+    """Quantum AND gate (Toffoli)."""
+    name = "quantum.and"
+    a = operand_def()
+    b = operand_def()
+    result = result_def()
+
+@irdl_op_definition
+class QuantumOrOp(IRDLOperation):
+    """Quantum OR gate."""
+    name = "quantum.or"
+    a = operand_def()
+    b = operand_def()
+    result = result_def()
+
+# === Dialect Registration === #
 def register_quantum_dialect(ctx: Context):
-    # Use the new dialect factory pattern
-    ctx.register_dialect("quantum", get_quantum_dialect)
-    
-    # Try to load builtin dialect
-    try:
-        ctx.load_dialect("builtin")
-    except Exception as e:
-        print(f"Warning: Could not load builtin dialect: {e}. It may be automatically registered.")
+    q_ops = [
+        QuantumInitOp, QuantumNotOp, QuantumCNOTOp, QuantumMeasureOp,
+        QuantumFuncOp,
+        QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
+        QuantumXorOp, QuantumAndOp, QuantumOrOp
+    ]
+    quantum_dialect = Dialect("quantum", q_ops, [])
+    ctx.register_dialect("quantum", lambda c: quantum_dialect)
+    ctx.register_dialect("builtin", lambda c: Builtin())
