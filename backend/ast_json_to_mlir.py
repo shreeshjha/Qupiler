@@ -10,7 +10,6 @@ from quantum_dialect import (
     QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
     QuantumXorOp, QuantumAndOp, QuantumOrOp,
     QuantumFuncOp,
-    # Import new ops
     QuantumIncrementOp, QuantumDecrementOp,
     QuantumPreIncrementOp, QuantumPostIncrementOp,
     QuantumPreDecrementOp, QuantumPostDecrementOp,
@@ -18,7 +17,8 @@ from quantum_dialect import (
     QuantumLeftShiftOp, QuantumRightShiftOp,
     QuantumLessThanOp, QuantumGreaterThanOp,
     QuantumEqualOp, QuantumNotEqualOp,
-    QuantumLessThanEqualOp, QuantumGreaterThanEqualOp
+    QuantumLessThanEqualOp, QuantumGreaterThanEqualOp,
+    QuantumWhileOp, QuantumConditionOp, QuantumIfOp
 )
 
 # Enable debug output if needed
@@ -30,6 +30,27 @@ def debug_print(*args, **kwargs):
 
 # Map C variable names to SSA values
 ssa_map = {}
+
+# Used to track changes to SSA variables inside control flow blocks
+ssa_changes = []
+
+# SSA variable scoping stack to handle nested scopes 
+scopes = []
+
+# Save the current SSA state when entering a new scope
+def push_scope():
+    scopes.append(ssa_map.copy())
+
+# Restore the SSA state when exiting a scope 
+def pop_scope():
+    global ssa_map 
+    if scopes:
+        ssa_map = scopes.pop()  # Fixed: was 'scores.pop()'
+
+# Update SSA map with changes from a nested scope
+def merge_ssa_changes(changes):
+    for var, val in changes.items():
+        ssa_map[var] = val
 
 # Build a quantum.func with one entry block
 def build_quantum_func(ctx: Context, name: str) -> QuantumFuncOp:
@@ -54,6 +75,14 @@ def find_body(node, target_name: str):
         if res:
             return res
     return []
+
+
+# Extract a compound statement body
+def extract_compound_body(node):
+    if node.get("kind") == "CompoundStmt":
+        return node.get("inner", [])
+    return []
+
 
 # Extract the actual variable name from a node that might be nested in cast expressions
 def extract_var_name(node):
@@ -128,12 +157,142 @@ def is_postfix_operator(node):
     opcode = node.get("opcode")
     return opcode in ["postinc", "postdec"] or opcode.startswith("post")
 
+
+# Generate code for a condition expression (used in while loops and if statements)
+def generate_condition(expr, blk):
+    debug_print(f"Generating condition for expression type: {expr.get('kind')}")
+    
+    if expr.get("kind") == "BinaryOperator":
+        opcode = expr.get("opcode")
+        debug_print(f"Condition opcode: {opcode}")
+        
+        var_refs = extract_binop_refs(expr)
+        debug_print(f"Condition variables: {var_refs}")
+        
+        if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
+            lhs_var, rhs_var = var_refs
+            
+            cmp_map = {
+                "<": QuantumLessThanOp,
+                ">": QuantumGreaterThanOp,
+                "==": QuantumEqualOp,
+                "!=": QuantumNotEqualOp,
+                "<=": QuantumLessThanEqualOp,
+                ">=": QuantumGreaterThanEqualOp
+            }
+            
+            logic_map = {
+                "&&": QuantumAndOp,
+                "||": QuantumOrOp
+            }
+            
+            if opcode in cmp_map:
+                op = cmp_map[opcode](
+                    result_types=[i1],
+                    operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                )
+                blk.add_op(op)
+                return op.results[0]
+            
+            elif opcode in logic_map:
+                op = logic_map[opcode](
+                    result_types=[i1],
+                    operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                )
+                blk.add_op(op)
+                return op.results[0]
+    
+    # Fallback case: If we can't parse the condition properly
+    debug_print("Could not generate condition properly, using default")
+    # Return a default true condition
+    op = QuantumInitOp(
+        result_types=[i1],
+        attributes={"type": i1, "value": IntegerAttr(1, i1)}
+    )
+    blk.add_op(op)
+    return op.results[0]
+
+# Process a WhileStmt node and create a quantum.while operation
+def process_while_stmt(stmt, blk):
+    debug_print("Processing while statement")
+    
+    # Extract the condition and body
+    condition_node = None
+    body_node = None
+    
+    for child in stmt.get("inner", []):
+        if condition_node is None:
+            condition_node = child
+        else:
+            body_node = child
+            break
+    
+    if not condition_node:
+        debug_print("No condition found in while loop")
+        return
+    
+    # Create the while op with two regions: condition and body
+    while_op = QuantumWhileOp(regions=[Region(), Region()])
+    
+    # Create blocks for condition and body regions
+    cond_block = Block()
+    body_block = Block()
+    
+    while_op.regions[0].add_block(cond_block)
+    while_op.regions[1].add_block(body_block)
+    
+    # Generate condition code
+    push_scope()  # Save current scope
+    
+    # Add the condition
+    condition_value = generate_condition(condition_node, cond_block)
+    
+    # Add the condition terminator
+    cond_op = QuantumConditionOp(operands=[condition_value])
+    cond_block.add_op(cond_op)
+    
+    # Generate the loop body in its own block
+    local_ssa_map = ssa_map.copy()  # Track SSA values for loop carried variables
+    
+    if body_node:
+        if body_node.get("kind") == "CompoundStmt":
+            body_stmts = body_node.get("inner", [])
+        else:
+            body_stmts = [body_node]  # Single statement
+            
+        for body_stmt in body_stmts:
+            translate_stmt(body_stmt, body_block)
+    
+    # Add body terminator
+    body_block.add_op(ReturnOp())
+    
+    # After processing, see what vars were modified in the loop body
+    modified_vars = {}
+    for var, val in ssa_map.items():
+        if var in local_ssa_map and local_ssa_map[var] != val:
+            modified_vars[var] = val
+    
+    pop_scope()  # Restore scope from before loop
+    
+    # Add the while op to the main block
+    blk.add_op(while_op)
+    
+    # Update SSA map with variables that were modified inside the loop
+    for var, val in modified_vars.items():
+        ssa_map[var] = val
+
+
 # Translate a single statement into quantum MLIR ops
 def translate_stmt(stmt, blk):
     kind = stmt.get("kind")
     debug_print(f"Processing statement of kind: {kind}")
     
-    if kind == "DeclStmt":
+    # Handle While statements
+    if kind == "WhileStmt":
+        process_while_stmt(stmt, blk)
+        return  # Added explicit return after handling while
+
+    elif kind == "DeclStmt":
         debug_print("Processing declaration statement")
         for decl in stmt.get("inner", []):
             if decl.get("kind") != "VarDecl":
@@ -522,6 +681,18 @@ def translate_stmt(stmt, blk):
                 m = QuantumMeasureOp(result_types=[i1], operands=[ssa_map[var_name]])
                 blk.add_op(m)
                 break
+
+    # Handle compound statements (eg: block of code)
+    elif kind == "CompoundStmt":
+        # Create a new scope for local variables
+        push_scope()
+        
+        # Process all statements in the compound statement
+        for inner_stmt in stmt.get("inner", []):
+            translate_stmt(inner_stmt, blk)
+            
+        # Exit the scope
+        pop_scope()
 
 # Main
 def main():

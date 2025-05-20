@@ -35,6 +35,25 @@ class QuantumFuncOp(IRDLOperation):
     body      = region_def()
     func_name = attr_def(StringAttr)
 
+# Control flow ops
+@irdl_op_definition
+class QuantumWhileOp(IRDLOperation):
+    name        = "quantum.while"
+    condition   = region_def()  # Region containing the condition
+    body        = region_def()  # Region containing the loop body
+
+@irdl_op_definition
+class QuantumConditionOp(IRDLOperation):
+    name         = "quantum.condition"
+    condition    = operand_def()  # Boolean condition
+
+@irdl_op_definition
+class QuantumIfOp(IRDLOperation):
+    name        = "quantum.if"
+    condition   = operand_def()   # Boolean condition
+    then_region = region_def()    # Then branch
+    else_region = region_def()    # Else branch (optional)
+
 # Arithmetic ops
 @irdl_op_definition
 class QuantumAddOp(IRDLOperation):
@@ -206,7 +225,9 @@ def register_quantum_dialect(ctx: Context):
       QuantumLeftShiftOp, QuantumRightShiftOp,
       QuantumLessThanOp, QuantumGreaterThanOp,
       QuantumEqualOp, QuantumNotEqualOp,
-      QuantumLessThanEqualOp, QuantumGreaterThanEqualOp
+      QuantumLessThanEqualOp, QuantumGreaterThanEqualOp,
+      # Control flow ops
+      QuantumWhileOp, QuantumConditionOp, QuantumIfOp
     ]
     dialect = Dialect("quantum", ops, [])
     ctx.register_dialect("quantum", lambda c: dialect)
