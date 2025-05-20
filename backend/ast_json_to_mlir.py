@@ -1,22 +1,4 @@
-# Process a CallExpr to find the printf arguments
-def process_printf_args(call_expr_node):
-    debug_print("Processing printf call")
-    
-    args = []
-    # Find the args in the CallExpr
-    for child in call_expr_node.get("inner", []):
-        if child.get("kind") != "ImplicitCastExpr" or "printf" in str(child):
-            continue
-        
-        # Skip format string arg
-        if "char" in str(child.get("type", {})):
-            continue
-            
-        var_name = extract_var_name(child)
-        if var_name:
-            args.append(var_name)
-            
-    return args# ast_json_to_mlir.py
+# ast_json_to_mlir.py
 import json, sys
 from xdsl.context import Context
 from xdsl.ir import Block, Region
@@ -27,11 +9,20 @@ from quantum_dialect import (
     QuantumInitOp, QuantumMeasureOp,
     QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
     QuantumXorOp, QuantumAndOp, QuantumOrOp,
-    QuantumFuncOp
+    QuantumFuncOp,
+    # Import new ops
+    QuantumIncrementOp, QuantumDecrementOp,
+    QuantumPreIncrementOp, QuantumPostIncrementOp,
+    QuantumPreDecrementOp, QuantumPostDecrementOp,
+    QuantumModOp,
+    QuantumLeftShiftOp, QuantumRightShiftOp,
+    QuantumLessThanOp, QuantumGreaterThanOp,
+    QuantumEqualOp, QuantumNotEqualOp,
+    QuantumLessThanEqualOp, QuantumGreaterThanEqualOp
 )
 
 # Enable debug output if needed
-DEBUG = False
+DEBUG = True
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -97,6 +88,46 @@ def extract_binop_refs(binop_node):
             refs.append(var_name)
     return refs
 
+# Process a CallExpr to find the printf arguments
+def process_printf_args(call_expr_node):
+    debug_print("Processing printf call")
+    
+    args = []
+    # Find the args in the CallExpr
+    for child in call_expr_node.get("inner", []):
+        if child.get("kind") != "ImplicitCastExpr" or "printf" in str(child):
+            continue
+        
+        # Skip format string arg
+        if "char" in str(child.get("type", {})):
+            continue
+            
+        var_name = extract_var_name(child)
+        if var_name:
+            args.append(var_name)
+            
+    return args
+
+# Determine if a unary operator is postfix
+def is_postfix_operator(node):
+    # Dump the node for debugging
+    if DEBUG:
+        debug_print(f"Checking if operator is postfix: {node.get('opcode')}")
+        debug_print(f"Node details: {node}")
+    
+    # Check for isPostfix attribute in AST
+    if "isPostfix" in node:
+        return node.get("isPostfix") == True
+    
+    # Alternative detection - check for valueCategory or tokens
+    # Some AST formats might indicate postfix ops differently
+    if "valueCategory" in node and node.get("valueCategory") == "postfix":
+        return True
+    
+    # If none of the above, use opcode as fallback
+    opcode = node.get("opcode")
+    return opcode in ["postinc", "postdec"] or opcode.startswith("post")
+
 # Translate a single statement into quantum MLIR ops
 def translate_stmt(stmt, blk):
     kind = stmt.get("kind")
@@ -113,7 +144,7 @@ def translate_stmt(stmt, blk):
             # find initializer
             init_node = None
             for ch in decl.get("inner", []):
-                if ch.get("kind") in ("IntegerLiteral", "BinaryOperator"):
+                if ch.get("kind") in ("IntegerLiteral", "BinaryOperator", "UnaryOperator"):
                     init_node = ch
                     debug_print(f"Found initializer: {ch.get('kind')}")
                     break
@@ -128,10 +159,9 @@ def translate_stmt(stmt, blk):
                 )
                 blk.add_op(op)
                 ssa_map[var] = op.results[0]
-                continue
                 
             # binary operator
-            if init_node and init_node.get("kind") == "BinaryOperator":
+            elif init_node and init_node.get("kind") == "BinaryOperator":
                 debug_print(f"Processing binary op initializer for {var}")
                 opcode = init_node.get("opcode")
                 debug_print(f"Binary operator opcode: {opcode}")
@@ -144,9 +174,14 @@ def translate_stmt(stmt, blk):
                     lhs_var, rhs_var = var_refs
                     debug_print(f"Creating binary op {opcode} with {lhs_var} and {rhs_var}")
                     arith_map = {"+": QuantumAddOp, "-": QuantumSubOp, 
-                                "*": QuantumMulOp, "/": QuantumDivOp}
+                                "*": QuantumMulOp, "/": QuantumDivOp,
+                                "%": QuantumModOp}
                     logic_map = {"^": QuantumXorOp, "&&": QuantumAndOp, 
                                 "||": QuantumOrOp}
+                    shift_map = {"<<": QuantumLeftShiftOp, ">>": QuantumRightShiftOp}
+                    cmp_map = {"<": QuantumLessThanOp, ">": QuantumGreaterThanOp,
+                              "==": QuantumEqualOp, "!=": QuantumNotEqualOp,
+                              "<=": QuantumLessThanEqualOp, ">=": QuantumGreaterThanEqualOp}
                     
                     if opcode in arith_map:
                         o = arith_map[opcode](
@@ -155,25 +190,123 @@ def translate_stmt(stmt, blk):
                         )
                         blk.add_op(o)
                         ssa_map[var] = o.results[0]
-                        continue
                         
-                    if opcode in logic_map:
+                    elif opcode in logic_map:
                         o = logic_map[opcode](
                             result_types=[i1], 
                             operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
                         )
                         blk.add_op(o)
                         ssa_map[var] = o.results[0]
-                        continue
+                        
+                    elif opcode in shift_map:
+                        o = shift_map[opcode](
+                            result_types=[i32], 
+                            operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                        )
+                        blk.add_op(o)
+                        ssa_map[var] = o.results[0]
+                        
+                    elif opcode in cmp_map:
+                        o = cmp_map[opcode](
+                            result_types=[i1], 
+                            operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                        )
+                        blk.add_op(o)
+                        ssa_map[var] = o.results[0]
+                else:
+                    # fallback zero init if we can't process binary op
+                    op = QuantumInitOp(
+                        result_types=[i32],
+                        attributes={"type": i32, "value": IntegerAttr(0, i32)}
+                    )
+                    blk.add_op(op)
+                    ssa_map[var] = op.results[0]
             
-            # fallback zero init
-            debug_print(f"Fallback initialization for {var} with value 0")
-            op = QuantumInitOp(
-                result_types=[i32],
-                attributes={"type": i32, "value": IntegerAttr(0, i32)}
-            )
-            blk.add_op(op)
-            ssa_map[var] = op.results[0]
+            # unary operator
+            elif init_node and init_node.get("kind") == "UnaryOperator":
+                debug_print(f"Processing unary op initializer for {var}")
+                opcode = init_node.get("opcode")
+                debug_print(f"Unary operator opcode: {opcode}")
+                
+                # Check if it's a postfix or prefix operator
+                is_postfix = is_postfix_operator(init_node)
+                debug_print(f"Is postfix operator: {is_postfix}")
+                
+                # Extract the operand
+                operand_node = init_node.get("inner", [])[0] if len(init_node.get("inner", [])) > 0 else None
+                operand_var = extract_var_name(operand_node)
+                
+                if operand_var and operand_var in ssa_map:
+                    debug_print(f"Found operand: {operand_var}")
+                    
+                    # Handle increment (++) operators
+                    if opcode == "++" or opcode == "inc":
+                        if is_postfix:
+                            # Post-increment (x++)
+                            debug_print(f"Creating post-increment for {operand_var}")
+                            op = QuantumPostIncrementOp(
+                                result_types=[i32, i32],
+                                operands=[ssa_map[operand_var]]
+                            )
+                            blk.add_op(op)
+                            ssa_map[var] = op.results[0]  # Original value
+                            # Update the original variable with the incremented value
+                            ssa_map[operand_var] = op.results[1]
+                        else:
+                            # Pre-increment (++x)
+                            debug_print(f"Creating pre-increment for {operand_var}")
+                            op = QuantumPreIncrementOp(
+                                result_types=[i32],
+                                operands=[ssa_map[operand_var]]
+                            )
+                            blk.add_op(op)
+                            ssa_map[var] = op.results[0]
+                            # Update the original variable too
+                            ssa_map[operand_var] = op.results[0]
+                    
+                    # Handle decrement (--) operators
+                    elif opcode == "--" or opcode == "dec":
+                        if is_postfix:
+                            # Post-decrement (x--)
+                            debug_print(f"Creating post-decrement for {operand_var}")
+                            op = QuantumPostDecrementOp(
+                                result_types=[i32, i32],
+                                operands=[ssa_map[operand_var]]
+                            )
+                            blk.add_op(op)
+                            ssa_map[var] = op.results[0]  # Original value
+                            # Update the original variable with the decremented value
+                            ssa_map[operand_var] = op.results[1]
+                        else:
+                            # Pre-decrement (--x)
+                            debug_print(f"Creating pre-decrement for {operand_var}")
+                            op = QuantumPreDecrementOp(
+                                result_types=[i32],
+                                operands=[ssa_map[operand_var]]
+                            )
+                            blk.add_op(op)
+                            ssa_map[var] = op.results[0]
+                            # Update the original variable too
+                            ssa_map[operand_var] = op.results[0]
+                else:
+                    # fallback zero init if we can't process unary op
+                    op = QuantumInitOp(
+                        result_types=[i32],
+                        attributes={"type": i32, "value": IntegerAttr(0, i32)}
+                    )
+                    blk.add_op(op)
+                    ssa_map[var] = op.results[0]
+            
+            # fallback zero init for any other case
+            else:
+                debug_print(f"Fallback initialization for {var} with value 0")
+                op = QuantumInitOp(
+                    result_types=[i32],
+                    attributes={"type": i32, "value": IntegerAttr(0, i32)}
+                )
+                blk.add_op(op)
+                ssa_map[var] = op.results[0]
             
     elif kind == "BinaryOperator":
         # Handle standalone assignment
@@ -181,23 +314,204 @@ def translate_stmt(stmt, blk):
             lhs_var = extract_var_name(stmt.get("inner", [])[0]) if len(stmt.get("inner", [])) > 0 else None
             rhs_node = stmt.get("inner", [])[1] if len(stmt.get("inner", [])) > 1 else None
             
-            if lhs_var and rhs_node and rhs_node.get("kind") == "BinaryOperator":
-                var_refs = extract_binop_refs(rhs_node)
-                if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
-                    op1, op2 = var_refs
+            if lhs_var and rhs_node:
+                debug_print(f"Processing assignment to {lhs_var}")
+                
+                # Handle different right-hand side node types
+                if rhs_node.get("kind") == "BinaryOperator":
+                    var_refs = extract_binop_refs(rhs_node)
+                    if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
+                        op1, op2 = var_refs
+                        opcode = rhs_node.get("opcode")
+                        arith_map = {"+": QuantumAddOp, "-": QuantumSubOp, 
+                                    "*": QuantumMulOp, "/": QuantumDivOp,
+                                    "%": QuantumModOp}
+                        logic_map = {"^": QuantumXorOp, "&&": QuantumAndOp, 
+                                    "||": QuantumOrOp}
+                        shift_map = {"<<": QuantumLeftShiftOp, ">>": QuantumRightShiftOp}
+                        cmp_map = {"<": QuantumLessThanOp, ">": QuantumGreaterThanOp,
+                                  "==": QuantumEqualOp, "!=": QuantumNotEqualOp,
+                                  "<=": QuantumLessThanEqualOp, ">=": QuantumGreaterThanEqualOp}
+                        
+                        if opcode in arith_map:
+                            o = arith_map[opcode](
+                                result_types=[i32], 
+                                operands=[ssa_map[op1], ssa_map[op2]]
+                            )
+                            blk.add_op(o)
+                            ssa_map[lhs_var] = o.results[0]
+                            
+                        elif opcode in logic_map:
+                            o = logic_map[opcode](
+                                result_types=[i1], 
+                                operands=[ssa_map[op1], ssa_map[op2]]
+                            )
+                            blk.add_op(o)
+                            ssa_map[lhs_var] = o.results[0]
+                            
+                        elif opcode in shift_map:
+                            o = shift_map[opcode](
+                                result_types=[i32], 
+                                operands=[ssa_map[op1], ssa_map[op2]]
+                            )
+                            blk.add_op(o)
+                            ssa_map[lhs_var] = o.results[0]
+                            
+                        elif opcode in cmp_map:
+                            o = cmp_map[opcode](
+                                result_types=[i1], 
+                                operands=[ssa_map[op1], ssa_map[op2]]
+                            )
+                            blk.add_op(o)
+                            ssa_map[lhs_var] = o.results[0]
+                
+                # Handle UnaryOperator on right side
+                elif rhs_node.get("kind") == "UnaryOperator":
                     opcode = rhs_node.get("opcode")
-                    arith_map = {"+": QuantumAddOp, "-": QuantumSubOp, 
-                                "*": QuantumMulOp, "/": QuantumDivOp}
-                    logic_map = {"^": QuantumXorOp, "&&": QuantumAndOp, 
-                                "||": QuantumOrOp}
+                    is_postfix = is_postfix_operator(rhs_node)
                     
-                    if opcode in arith_map:
-                        o = arith_map[opcode](
-                            result_types=[i32], 
-                            operands=[ssa_map[op1], ssa_map[op2]]
-                        )
-                        blk.add_op(o)
-                        ssa_map[lhs_var] = o.results[0]
+                    operand_node = rhs_node.get("inner", [])[0] if len(rhs_node.get("inner", [])) > 0 else None
+                    operand_var = extract_var_name(operand_node)
+                    
+                    if operand_var and operand_var in ssa_map:
+                        # Handle increment (++) operators
+                        if opcode == "++" or opcode == "inc":
+                            if is_postfix:
+                                # Post-increment (x++)
+                                op = QuantumPostIncrementOp(
+                                    result_types=[i32, i32],
+                                    operands=[ssa_map[operand_var]]
+                                )
+                                blk.add_op(op)
+                                ssa_map[lhs_var] = op.results[0]  # Original value
+                                ssa_map[operand_var] = op.results[1]  # Incremented value
+                            else:
+                                # Pre-increment (++x)
+                                op = QuantumPreIncrementOp(
+                                    result_types=[i32],
+                                    operands=[ssa_map[operand_var]]
+                                )
+                                blk.add_op(op)
+                                ssa_map[lhs_var] = op.results[0]
+                                ssa_map[operand_var] = op.results[0]
+                        
+                        # Handle decrement (--) operators
+                        elif opcode == "--" or opcode == "dec":
+                            if is_postfix:
+                                # Post-decrement (x--)
+                                op = QuantumPostDecrementOp(
+                                    result_types=[i32, i32],
+                                    operands=[ssa_map[operand_var]]
+                                )
+                                blk.add_op(op)
+                                ssa_map[lhs_var] = op.results[0]  # Original value
+                                ssa_map[operand_var] = op.results[1]  # Decremented value
+                            else:
+                                # Pre-decrement (--x)
+                                op = QuantumPreDecrementOp(
+                                    result_types=[i32],
+                                    operands=[ssa_map[operand_var]]
+                                )
+                                blk.add_op(op)
+                                ssa_map[lhs_var] = op.results[0]
+                                ssa_map[operand_var] = op.results[0]
+                
+                # Handle simple variable reference on the right side
+                else:
+                    rhs_var = extract_var_name(rhs_node)
+                    if rhs_var and rhs_var in ssa_map:
+                        debug_print(f"Assignment from variable: {rhs_var}")
+                        ssa_map[lhs_var] = ssa_map[rhs_var]
+    
+    # Handle standalone unary operations
+    elif kind == "UnaryOperator":
+        opcode = stmt.get("opcode")
+        debug_print(f"Processing standalone unary operator: {opcode}")
+        is_postfix = is_postfix_operator(stmt)
+        debug_print(f"Is postfix: {is_postfix}")
+        
+        # Get the operand
+        operand_node = stmt.get("inner", [])[0] if len(stmt.get("inner", [])) > 0 else None
+        operand_var = extract_var_name(operand_node)
+        
+        if operand_var and operand_var in ssa_map:
+            # Handle increment (++) operators
+            if opcode == "++" or opcode == "inc":
+                if is_postfix:
+                    # Post-increment (x++)
+                    op = QuantumPostIncrementOp(
+                        result_types=[i32, i32],
+                        operands=[ssa_map[operand_var]]
+                    )
+                    blk.add_op(op)
+                    # Update the variable with the incremented value
+                    ssa_map[operand_var] = op.results[1]
+                else:
+                    # Pre-increment (++x)
+                    op = QuantumPreIncrementOp(
+                        result_types=[i32],
+                        operands=[ssa_map[operand_var]]
+                    )
+                    blk.add_op(op)
+                    ssa_map[operand_var] = op.results[0]
+            
+            # Handle decrement (--) operators
+            elif opcode == "--" or opcode == "dec":
+                if is_postfix:
+                    # Post-decrement (x--)
+                    op = QuantumPostDecrementOp(
+                        result_types=[i32, i32],
+                        operands=[ssa_map[operand_var]]
+                    )
+                    blk.add_op(op)
+                    # Update the variable with the decremented value
+                    ssa_map[operand_var] = op.results[1]
+                else:
+                    # Pre-decrement (--x)
+                    op = QuantumPreDecrementOp(
+                        result_types=[i32],
+                        operands=[ssa_map[operand_var]]
+                    )
+                    blk.add_op(op)
+                    ssa_map[operand_var] = op.results[0]
+                
+    # Handle compound assignments (+=, -=, *=, /=)
+    elif kind == "CompoundAssignOperator":
+        opcode = stmt.get("opcode")
+        debug_print(f"Processing compound assignment: {opcode}")
+        
+        # Extract left and right hand sides
+        lhs_node = stmt.get("inner", [])[0] if len(stmt.get("inner", [])) > 0 else None
+        rhs_node = stmt.get("inner", [])[1] if len(stmt.get("inner", [])) > 1 else None
+        
+        lhs_var = extract_var_name(lhs_node)
+        rhs_var = extract_var_name(rhs_node)
+        
+        if lhs_var and lhs_var in ssa_map and rhs_var and rhs_var in ssa_map:
+            # Map compound operators to binary operators
+            op_map = {
+                "+=": QuantumAddOp,
+                "-=": QuantumSubOp,
+                "*=": QuantumMulOp,
+                "/=": QuantumDivOp,
+                "%=": QuantumModOp,
+                "<<=": QuantumLeftShiftOp,
+                ">>=": QuantumRightShiftOp,
+                "^=": QuantumXorOp,
+                "&=": QuantumAndOp,
+                "|=": QuantumOrOp
+            }
+            
+            if opcode in op_map:
+                # Create the corresponding binary operation
+                result_type = i32 if opcode not in ["^=", "&=", "|="] else i1
+                
+                o = op_map[opcode](
+                    result_types=[result_type],
+                    operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                )
+                blk.add_op(o)
+                ssa_map[lhs_var] = o.results[0]
             
     elif kind == "CallExpr" and (stmt.get("callee",{}).get("name") == "printf" or 
                               "printf" in str(stmt.get("inner", [0]))):
