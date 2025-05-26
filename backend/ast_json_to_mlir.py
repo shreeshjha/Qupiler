@@ -1,9 +1,10 @@
 # ast_json_to_mlir.py
 import json, sys
 from xdsl.context import Context
-from xdsl.ir import Block, Region
+from xdsl.ir import Block, Region, BlockArgument
 from xdsl.dialects.builtin import IntegerAttr, StringAttr, ModuleOp, i1, i32
 from xdsl.dialects.func import ReturnOp
+
 from quantum_dialect import (
     register_quantum_dialect,
     QuantumInitOp, QuantumMeasureOp,
@@ -36,6 +37,9 @@ ssa_changes = []
 
 # SSA variable scoping stack to handle nested scopes 
 scopes = []
+
+# Global current block tracker
+current_block = None
 
 # Save the current SSA state when entering a new scope
 def push_scope():
@@ -212,75 +216,73 @@ def generate_condition(expr, blk):
     blk.add_op(op)
     return op.results[0]
 
-# Process a WhileStmt node and create a quantum.while operation
+# Process a WhileStmt node and create a simplified representation
 def process_while_stmt(stmt, blk):
-    debug_print("Processing while statement")
+    """
+    Process while loop and emit a quantum.while operation
+    """
+    global current_block
     
-    # Extract the condition and body
-    condition_node = None
-    body_node = None
-    
-    for child in stmt.get("inner", []):
-        if condition_node is None:
-            condition_node = child
-        else:
-            body_node = child
-            break
-    
-    if not condition_node:
-        debug_print("No condition found in while loop")
+    # Extract condition and body
+    inner = stmt.get("inner", [])
+    if len(inner) < 2:
+        debug_print("Warning: WhileStmt doesn't have enough children")
         return
+        
+    cond_node = inner[0]
+    body_node = inner[1]
     
-    # Create the while op with two regions: condition and body
+    debug_print("Processing while loop - creating quantum.while operation")
+    
+    # Create the quantum.while operation with condition and body regions
     while_op = QuantumWhileOp(regions=[Region(), Region()])
     
     # Create blocks for condition and body regions
     cond_block = Block()
     body_block = Block()
     
-    while_op.regions[0].add_block(cond_block)
-    while_op.regions[1].add_block(body_block)
+    while_op.regions[0].add_block(cond_block)  # condition region
+    while_op.regions[1].add_block(body_block)  # body region
     
-    # Generate condition code
-    push_scope()  # Save current scope
+    # Generate condition in the condition block
+    debug_print("Generating condition for while loop")
+    cond_result = generate_condition(cond_node, cond_block)
     
-    # Add the condition
-    condition_value = generate_condition(condition_node, cond_block)
-    
-    # Add the condition terminator
-    cond_op = QuantumConditionOp(operands=[condition_value])
+    # Add condition operation to condition block
+    cond_op = QuantumConditionOp(operands=[cond_result])
     cond_block.add_op(cond_op)
     
-    # Generate the loop body in its own block
-    local_ssa_map = ssa_map.copy()  # Track SSA values for loop carried variables
+    # Process body statements in the body block
+    if body_node.get("kind") == "CompoundStmt":
+        stmts = body_node.get("inner", [])
+    else:
+        stmts = [body_node]
+        
+    debug_print(f"Processing {len(stmts)} statements in while loop body")
     
-    if body_node:
-        if body_node.get("kind") == "CompoundStmt":
-            body_stmts = body_node.get("inner", [])
-        else:
-            body_stmts = [body_node]  # Single statement
-            
-        for body_stmt in body_stmts:
-            translate_stmt(body_stmt, body_block)
+    # Create a new scope for the loop body
+    push_scope()
     
-    # Add body terminator
-    body_block.add_op(ReturnOp())
+    # Set current_block to the body_block so statements get added there
+    old_current_block = current_block
+    current_block = body_block
+    debug_print(f"Switched to body block for processing loop body")
     
-    # After processing, see what vars were modified in the loop body
-    modified_vars = {}
-    for var, val in ssa_map.items():
-        if var in local_ssa_map and local_ssa_map[var] != val:
-            modified_vars[var] = val
+    for stmt in stmts:
+        debug_print(f"Processing body statement in body_block: {stmt.get('kind')}")
+        translate_stmt(stmt, body_block)  # Explicitly pass body_block
+        
+    debug_print(f"Finished processing body statements, switching back to original block")
+    # Restore the original current_block
+    current_block = old_current_block
+        
+    # Exit the loop scope
+    pop_scope()
     
-    pop_scope()  # Restore scope from before loop
-    
-    # Add the while op to the main block
+    # Add the while operation to the current block
     blk.add_op(while_op)
     
-    # Update SSA map with variables that were modified inside the loop
-    for var, val in modified_vars.items():
-        ssa_map[var] = val
-
+    debug_print("Finished processing while loop - quantum.while operation created")
 
 # Translate a single statement into quantum MLIR ops
 def translate_stmt(stmt, blk):
@@ -303,7 +305,7 @@ def translate_stmt(stmt, blk):
             # find initializer
             init_node = None
             for ch in decl.get("inner", []):
-                if ch.get("kind") in ("IntegerLiteral", "BinaryOperator", "UnaryOperator"):
+                if ch.get("kind") in ("IntegerLiteral", "BinaryOperator", "UnaryOperator", "DeclRefExpr", "ImplicitCastExpr"):
                     init_node = ch
                     debug_print(f"Found initializer: {ch.get('kind')}")
                     break
@@ -318,6 +320,22 @@ def translate_stmt(stmt, blk):
                 )
                 blk.add_op(op)
                 ssa_map[var] = op.results[0]
+            
+            # variable reference (e.g., int sum = x;)
+            elif init_node and (init_node.get("kind") == "DeclRefExpr" or init_node.get("kind") == "ImplicitCastExpr"):
+                src_var = extract_var_name(init_node)
+                if src_var and src_var in ssa_map:
+                    debug_print(f"Initializing {var} from variable {src_var}")
+                    ssa_map[var] = ssa_map[src_var]  # Direct assignment
+                else:
+                    debug_print(f"Could not find source variable {src_var}, using fallback initialization")
+                    # fallback zero init
+                    op = QuantumInitOp(
+                        result_types=[i32],
+                        attributes={"type": i32, "value": IntegerAttr(0, i32)}
+                    )
+                    blk.add_op(op)
+                    ssa_map[var] = op.results[0]
                 
             # binary operator
             elif init_node and init_node.get("kind") == "BinaryOperator":
@@ -375,6 +393,7 @@ def translate_stmt(stmt, blk):
                         ssa_map[var] = o.results[0]
                 else:
                     # fallback zero init if we can't process binary op
+                    debug_print(f"Could not process binary op for {var}, using fallback")
                     op = QuantumInitOp(
                         result_types=[i32],
                         attributes={"type": i32, "value": IntegerAttr(0, i32)}
@@ -450,6 +469,7 @@ def translate_stmt(stmt, blk):
                             ssa_map[operand_var] = op.results[0]
                 else:
                     # fallback zero init if we can't process unary op
+                    debug_print(f"Could not process unary op for {var}, using fallback")
                     op = QuantumInitOp(
                         result_types=[i32],
                         attributes={"type": i32, "value": IntegerAttr(0, i32)}
@@ -459,7 +479,7 @@ def translate_stmt(stmt, blk):
             
             # fallback zero init for any other case
             else:
-                debug_print(f"Fallback initialization for {var} with value 0")
+                debug_print(f"No recognizable initializer for {var}, using fallback initialization with value 0")
                 op = QuantumInitOp(
                     result_types=[i32],
                     attributes={"type": i32, "value": IntegerAttr(0, i32)}
@@ -470,59 +490,99 @@ def translate_stmt(stmt, blk):
     elif kind == "BinaryOperator":
         # Handle standalone assignment
         if stmt.get("opcode") == "=":
+            debug_print(f"Processing assignment operation")
             lhs_var = extract_var_name(stmt.get("inner", [])[0]) if len(stmt.get("inner", [])) > 0 else None
             rhs_node = stmt.get("inner", [])[1] if len(stmt.get("inner", [])) > 1 else None
+            
+            debug_print(f"Assignment: {lhs_var} = {rhs_node.get('kind') if rhs_node else 'None'}")
             
             if lhs_var and rhs_node:
                 debug_print(f"Processing assignment to {lhs_var}")
                 
                 # Handle different right-hand side node types
                 if rhs_node.get("kind") == "BinaryOperator":
-                    var_refs = extract_binop_refs(rhs_node)
-                    if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
-                        op1, op2 = var_refs
-                        opcode = rhs_node.get("opcode")
-                        arith_map = {"+": QuantumAddOp, "-": QuantumSubOp, 
-                                    "*": QuantumMulOp, "/": QuantumDivOp,
-                                    "%": QuantumModOp}
-                        logic_map = {"^": QuantumXorOp, "&&": QuantumAndOp, 
-                                    "||": QuantumOrOp}
-                        shift_map = {"<<": QuantumLeftShiftOp, ">>": QuantumRightShiftOp}
-                        cmp_map = {"<": QuantumLessThanOp, ">": QuantumGreaterThanOp,
-                                  "==": QuantumEqualOp, "!=": QuantumNotEqualOp,
-                                  "<=": QuantumLessThanEqualOp, ">=": QuantumGreaterThanEqualOp}
+                    opcode = rhs_node.get("opcode")
+                    debug_print(f"Processing binary operation: {opcode}")
+                    
+                    # Extract operands from the binary operation
+                    rhs_inner = rhs_node.get("inner", [])
+                    if len(rhs_inner) >= 2:
+                        left_operand = rhs_inner[0]
+                        right_operand = rhs_inner[1]
                         
-                        if opcode in arith_map:
-                            o = arith_map[opcode](
-                                result_types=[i32], 
-                                operands=[ssa_map[op1], ssa_map[op2]]
+                        # Get the left operand (could be variable or literal)
+                        left_var = extract_var_name(left_operand)
+                        left_val = None
+                        if left_var and left_var in ssa_map:
+                            left_val = ssa_map[left_var]
+                            debug_print(f"Left operand: variable {left_var}")
+                        
+                        # Get the right operand (could be variable or literal) 
+                        right_var = extract_var_name(right_operand)
+                        right_val = None
+                        if right_var and right_var in ssa_map:
+                            right_val = ssa_map[right_var]
+                            debug_print(f"Right operand: variable {right_var}")
+                        elif right_operand.get("kind") == "IntegerLiteral":
+                            # Handle integer literal
+                            lit_val = int(right_operand.get("value", "0"))
+                            debug_print(f"Right operand: literal {lit_val}")
+                            # Create a constant for the literal
+                            const_op = QuantumInitOp(
+                                result_types=[i32],
+                                attributes={"type": i32, "value": IntegerAttr(lit_val, i32)}
                             )
-                            blk.add_op(o)
-                            ssa_map[lhs_var] = o.results[0]
+                            blk.add_op(const_op)
+                            right_val = const_op.results[0]
+                        
+                        # If we have both operands, create the operation
+                        if left_val is not None and right_val is not None:
+                            arith_map = {"+": QuantumAddOp, "-": QuantumSubOp, 
+                                        "*": QuantumMulOp, "/": QuantumDivOp,
+                                        "%": QuantumModOp}
+                            logic_map = {"^": QuantumXorOp, "&&": QuantumAndOp, 
+                                        "||": QuantumOrOp}
+                            shift_map = {"<<": QuantumLeftShiftOp, ">>": QuantumRightShiftOp}
+                            cmp_map = {"<": QuantumLessThanOp, ">": QuantumGreaterThanOp,
+                                      "==": QuantumEqualOp, "!=": QuantumNotEqualOp,
+                                      "<=": QuantumLessThanEqualOp, ">=": QuantumGreaterThanEqualOp}
                             
-                        elif opcode in logic_map:
-                            o = logic_map[opcode](
-                                result_types=[i1], 
-                                operands=[ssa_map[op1], ssa_map[op2]]
-                            )
-                            blk.add_op(o)
-                            ssa_map[lhs_var] = o.results[0]
-                            
-                        elif opcode in shift_map:
-                            o = shift_map[opcode](
-                                result_types=[i32], 
-                                operands=[ssa_map[op1], ssa_map[op2]]
-                            )
-                            blk.add_op(o)
-                            ssa_map[lhs_var] = o.results[0]
-                            
-                        elif opcode in cmp_map:
-                            o = cmp_map[opcode](
-                                result_types=[i1], 
-                                operands=[ssa_map[op1], ssa_map[op2]]
-                            )
-                            blk.add_op(o)
-                            ssa_map[lhs_var] = o.results[0]
+                            if opcode in arith_map:
+                                debug_print(f"Creating arithmetic operation: {opcode}")
+                                o = arith_map[opcode](
+                                    result_types=[i32], 
+                                    operands=[left_val, right_val]
+                                )
+                                blk.add_op(o)
+                                debug_print(f"Added {opcode} operation to block")
+                                ssa_map[lhs_var] = o.results[0]
+                                debug_print(f"Updated {lhs_var} with result of {opcode}")
+                                
+                            elif opcode in logic_map:
+                                o = logic_map[opcode](
+                                    result_types=[i1], 
+                                    operands=[left_val, right_val]
+                                )
+                                blk.add_op(o)
+                                ssa_map[lhs_var] = o.results[0]
+                                
+                            elif opcode in shift_map:
+                                o = shift_map[opcode](
+                                    result_types=[i32], 
+                                    operands=[left_val, right_val]
+                                )
+                                blk.add_op(o)
+                                ssa_map[lhs_var] = o.results[0]
+                                
+                            elif opcode in cmp_map:
+                                o = cmp_map[opcode](
+                                    result_types=[i1], 
+                                    operands=[left_val, right_val]
+                                )
+                                blk.add_op(o)
+                                ssa_map[lhs_var] = o.results[0]
+                        else:
+                            debug_print(f"Could not resolve operands for {opcode} operation")
                 
                 # Handle UnaryOperator on right side
                 elif rhs_node.get("kind") == "UnaryOperator":
@@ -696,6 +756,8 @@ def translate_stmt(stmt, blk):
 
 # Main
 def main():
+    global current_block
+    
     if len(sys.argv)!=3:
         print("Usage: python ast_json_to_mlir.py <input.json> <output.mlir>")
         sys.exit(1)
@@ -714,6 +776,7 @@ def main():
     
     fn = build_quantum_func(ctx, "quantum_circuit")
     blk = fn.regions[0].blocks[0]
+    current_block = blk
     
     # Find and process the body of the quantum_circuit function
     body = find_body(ast, "quantum_circuit")
@@ -722,10 +785,10 @@ def main():
     # Process each statement
     for idx, stmt in enumerate(body):
         debug_print(f"\nProcessing statement {idx+1}/{len(body)}")
-        translate_stmt(stmt, blk)
+        translate_stmt(stmt, current_block)
     
     # Add return and finalize module
-    blk.add_op(ReturnOp())
+    current_block.add_op(ReturnOp())
     mod.regions[0].blocks[0].add_op(fn)
     
     # Write output
