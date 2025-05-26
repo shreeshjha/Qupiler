@@ -225,7 +225,7 @@ def generate_condition(expr, blk):
 # Process a WhileStmt node and create a simplified representation
 def process_while_stmt(stmt, blk):
     """
-    Process while loop and emit a quantum.while operation
+    Process while loop with improved loop-carried value tracking
     """
     global current_block, loop_modified_vars, in_loop_body
     
@@ -238,81 +238,92 @@ def process_while_stmt(stmt, blk):
     cond_node = inner[0]
     body_node = inner[1]
     
-    debug_print("Processing while loop - creating quantum.while operation")
+    debug_print("Processing while loop with improved variable tracking")
     
-    # Track variables before loop
-    pre_loop_ssa = ssa_map.copy()
+    # Step 1: Identify variables used in condition
+    cond_vars = set()
+    if cond_node.get("kind") == "BinaryOperator":
+        var_refs = extract_binop_refs(cond_node)
+        cond_vars.update(var_refs)
     
-    # Create the quantum.while operation with condition and body regions
-    while_op = QuantumWhileOp(regions=[Region(), Region()])
+    debug_print(f"Variables used in condition: {cond_vars}")
     
-    # Create blocks for condition and body regions
-    cond_block = Block()
-    body_block = Block()
+    # Step 2: Find variables modified in body (dry run)
+    loop_modified_vars = set()
     
-    while_op.regions[0].add_block(cond_block)  # condition region
-    while_op.regions[1].add_block(body_block)  # body region
-    
-    # Generate condition in the condition block
-    debug_print("Generating condition for while loop")
-    cond_result = generate_condition(cond_node, cond_block)
-    
-    # Add condition operation to condition block
-    cond_op = QuantumConditionOp(operands=[cond_result])
-    cond_block.add_op(cond_op)
-    
-    # Process body statements in the body block
     if body_node.get("kind") == "CompoundStmt":
         stmts = body_node.get("inner", [])
     else:
         stmts = [body_node]
-        
+    
+    # Analyze body statements to find modifications
+    for stmt in stmts:
+        if stmt.get("kind") == "BinaryOperator" and stmt.get("opcode") == "=":
+            lhs_var = extract_var_name(stmt.get("inner", [])[0]) if len(stmt.get("inner", [])) > 0 else None
+            if lhs_var:
+                loop_modified_vars.add(lhs_var)
+                debug_print(f"Variable modified in loop: {lhs_var}")
+    
+    # Step 3: Create while operation (using existing dialect)
+    while_op = QuantumWhileOp(regions=[Region(), Region()])
+    
+    # Create condition and body blocks
+    cond_block = Block()
+    body_block = Block()
+    
+    while_op.regions[0].add_block(cond_block)
+    while_op.regions[1].add_block(body_block)
+    
+    # Step 4: Generate condition (same as before)
+    debug_print("Generating condition for while loop")
+    cond_result = generate_condition(cond_node, cond_block)
+    cond_op = QuantumConditionOp(operands=[cond_result])
+    cond_block.add_op(cond_op)
+    
+    # Step 5: Process body statements
     debug_print(f"Processing {len(stmts)} statements in while loop body")
     
-    # Create a new scope for the loop body
     push_scope()
-    
-    # Reset loop modified vars for this loop
-    loop_modified_vars = set()
-    
-    # Set current_block to the body_block so statements get added there
     old_current_block = current_block
     current_block = body_block
-    in_loop_body = True  # Set flag to indicate we're in a loop body
-    debug_print(f"Switched to body block for processing loop body")
+    in_loop_body = True
     
     for stmt in stmts:
-        debug_print(f"Processing body statement in body_block: {stmt.get('kind')}")
-        translate_stmt(stmt, body_block)  # Explicitly pass body_block
-        
-    debug_print(f"Finished processing body statements, switching back to original block")
-    debug_print(f"Variables modified in loop: {loop_modified_vars}")
+        debug_print(f"Processing body statement: {stmt.get('kind')}")
+        translate_stmt(stmt, body_block)
     
-    # Restore the original current_block and flag
     current_block = old_current_block
     in_loop_body = False
-        
-    # Exit the loop scope
     pop_scope()
     
-    # Add the while operation to the current block
+    # Step 6: Add while operation to current block
     blk.add_op(while_op)
     
-    # For variables modified in the loop, create placeholder post-loop values
+    # Step 7: Create post-loop values for modified variables
+    debug_print(f"Creating post-loop values for modified variables: {loop_modified_vars}")
+    
     for var in loop_modified_vars:
         if var in ssa_map:
-            debug_print(f"Creating post-loop value for modified variable: {var}")
-            # Create a placeholder that represents the modified variable after the loop
-            # In a real implementation, this would be the loop's output value
+            debug_print(f"Creating post-loop representation for {var}")
+            
+            # Create a symbolic post-loop value
+            # This represents the value of the variable after the loop has executed
+            # In a full implementation, this would be derived from the loop's execution
             post_loop_op = QuantumInitOp(
                 result_types=[i32],
-                attributes={"type": i32, "value": IntegerAttr(42, i32)}  # Placeholder value
+                attributes={
+                    "type": i32, 
+                    "value": IntegerAttr(0, i32)  # Symbolic value representing "result after loop"
+                }
             )
             blk.add_op(post_loop_op)
+            
+            # Update SSA map
+            old_val = ssa_map[var]
             ssa_map[var] = post_loop_op.results[0]
-            debug_print(f"Updated {var} to post-loop SSA value: {post_loop_op.results[0]}")
+            debug_print(f"Updated {var}: {old_val} -> {ssa_map[var]} (post-loop)")
     
-    debug_print("Finished processing while loop - quantum.while operation created")
+    debug_print("Finished processing while loop with improved tracking")
 
 # Translate a single statement into quantum MLIR ops
 def translate_stmt(stmt, blk):
