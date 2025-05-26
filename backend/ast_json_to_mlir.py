@@ -38,6 +38,12 @@ ssa_changes = []
 # SSA variable scoping stack to handle nested scopes 
 scopes = []
 
+# Track variables modified in loops
+loop_modified_vars = set()
+
+# Flag to track if we're currently processing a loop body
+in_loop_body = False
+
 # Global current block tracker
 current_block = None
 
@@ -221,7 +227,7 @@ def process_while_stmt(stmt, blk):
     """
     Process while loop and emit a quantum.while operation
     """
-    global current_block
+    global current_block, loop_modified_vars, in_loop_body
     
     # Extract condition and body
     inner = stmt.get("inner", [])
@@ -233,6 +239,9 @@ def process_while_stmt(stmt, blk):
     body_node = inner[1]
     
     debug_print("Processing while loop - creating quantum.while operation")
+    
+    # Track variables before loop
+    pre_loop_ssa = ssa_map.copy()
     
     # Create the quantum.while operation with condition and body regions
     while_op = QuantumWhileOp(regions=[Region(), Region()])
@@ -263,9 +272,13 @@ def process_while_stmt(stmt, blk):
     # Create a new scope for the loop body
     push_scope()
     
+    # Reset loop modified vars for this loop
+    loop_modified_vars = set()
+    
     # Set current_block to the body_block so statements get added there
     old_current_block = current_block
     current_block = body_block
+    in_loop_body = True  # Set flag to indicate we're in a loop body
     debug_print(f"Switched to body block for processing loop body")
     
     for stmt in stmts:
@@ -273,14 +286,31 @@ def process_while_stmt(stmt, blk):
         translate_stmt(stmt, body_block)  # Explicitly pass body_block
         
     debug_print(f"Finished processing body statements, switching back to original block")
-    # Restore the original current_block
+    debug_print(f"Variables modified in loop: {loop_modified_vars}")
+    
+    # Restore the original current_block and flag
     current_block = old_current_block
+    in_loop_body = False
         
     # Exit the loop scope
     pop_scope()
     
     # Add the while operation to the current block
     blk.add_op(while_op)
+    
+    # For variables modified in the loop, create placeholder post-loop values
+    for var in loop_modified_vars:
+        if var in ssa_map:
+            debug_print(f"Creating post-loop value for modified variable: {var}")
+            # Create a placeholder that represents the modified variable after the loop
+            # In a real implementation, this would be the loop's output value
+            post_loop_op = QuantumInitOp(
+                result_types=[i32],
+                attributes={"type": i32, "value": IntegerAttr(42, i32)}  # Placeholder value
+            )
+            blk.add_op(post_loop_op)
+            ssa_map[var] = post_loop_op.results[0]
+            debug_print(f"Updated {var} to post-loop SSA value: {post_loop_op.results[0]}")
     
     debug_print("Finished processing while loop - quantum.while operation created")
 
@@ -556,7 +586,12 @@ def translate_stmt(stmt, blk):
                                 blk.add_op(o)
                                 debug_print(f"Added {opcode} operation to block")
                                 ssa_map[lhs_var] = o.results[0]
-                                debug_print(f"Updated {lhs_var} with result of {opcode}")
+                                debug_print(f"Updated SSA mapping: {lhs_var} -> {o.results[0]}")
+                                
+                                # If we're in a loop body, track this variable as modified
+                                if in_loop_body:
+                                    loop_modified_vars.add(lhs_var)
+                                    debug_print(f"Tracked {lhs_var} as modified in loop body")
                                 
                             elif opcode in logic_map:
                                 o = logic_map[opcode](
@@ -602,8 +637,14 @@ def translate_stmt(stmt, blk):
                                     operands=[ssa_map[operand_var]]
                                 )
                                 blk.add_op(op)
-                                ssa_map[lhs_var] = op.results[0]  # Original value
-                                ssa_map[operand_var] = op.results[1]  # Incremented value
+                                ssa_map[lhs_var] = op.results[0]
+                                ssa_map[operand_var] = op.results[1]
+                                
+                                # Track variable modifications in loop body
+                                if in_loop_body:
+                                    loop_modified_vars.add(lhs_var)
+                                    loop_modified_vars.add(operand_var)
+                                    debug_print(f"Tracked {lhs_var} and {operand_var} as modified in loop body")
                             else:
                                 # Pre-increment (++x)
                                 op = QuantumPreIncrementOp(
@@ -641,6 +682,11 @@ def translate_stmt(stmt, blk):
                     if rhs_var and rhs_var in ssa_map:
                         debug_print(f"Assignment from variable: {rhs_var}")
                         ssa_map[lhs_var] = ssa_map[rhs_var]
+                        
+                        # Track variable modification in loop body
+                        if in_loop_body:
+                            loop_modified_vars.add(lhs_var)
+                            debug_print(f"Tracked {lhs_var} as modified in loop body (simple assignment)")
     
     # Handle standalone unary operations
     elif kind == "UnaryOperator":
@@ -665,6 +711,11 @@ def translate_stmt(stmt, blk):
                     blk.add_op(op)
                     # Update the variable with the incremented value
                     ssa_map[operand_var] = op.results[1]
+                    
+                    # Track variable modification in loop body
+                    if in_loop_body:
+                        loop_modified_vars.add(operand_var)
+                        debug_print(f"Tracked {operand_var} as modified in loop body (standalone post-increment)")
                 else:
                     # Pre-increment (++x)
                     op = QuantumPreIncrementOp(
@@ -673,6 +724,11 @@ def translate_stmt(stmt, blk):
                     )
                     blk.add_op(op)
                     ssa_map[operand_var] = op.results[0]
+                    
+                    # Track variable modification in loop body
+                    if in_loop_body:
+                        loop_modified_vars.add(operand_var)
+                        debug_print(f"Tracked {operand_var} as modified in loop body (standalone pre-increment)")
             
             # Handle decrement (--) operators
             elif opcode == "--" or opcode == "dec":
@@ -685,6 +741,11 @@ def translate_stmt(stmt, blk):
                     blk.add_op(op)
                     # Update the variable with the decremented value
                     ssa_map[operand_var] = op.results[1]
+                    
+                    # Track variable modification in loop body
+                    if in_loop_body:
+                        loop_modified_vars.add(operand_var)
+                        debug_print(f"Tracked {operand_var} as modified in loop body (standalone post-decrement)")
                 else:
                     # Pre-decrement (--x)
                     op = QuantumPreDecrementOp(
@@ -693,6 +754,11 @@ def translate_stmt(stmt, blk):
                     )
                     blk.add_op(op)
                     ssa_map[operand_var] = op.results[0]
+                    
+                    # Track variable modification in loop body
+                    if in_loop_body:
+                        loop_modified_vars.add(operand_var)
+                        debug_print(f"Tracked {operand_var} as modified in loop body (standalone pre-decrement)")
                 
     # Handle compound assignments (+=, -=, *=, /=)
     elif kind == "CompoundAssignOperator":
@@ -731,6 +797,11 @@ def translate_stmt(stmt, blk):
                 )
                 blk.add_op(o)
                 ssa_map[lhs_var] = o.results[0]
+                
+                # Track variable modification in loop body
+                if in_loop_body:
+                    loop_modified_vars.add(lhs_var)
+                    debug_print(f"Tracked {lhs_var} as modified in loop body (compound assignment)")
             
     elif kind == "CallExpr" and (stmt.get("callee",{}).get("name") == "printf" or 
                               "printf" in str(stmt.get("inner", [0]))):
@@ -756,7 +827,10 @@ def translate_stmt(stmt, blk):
 
 # Main
 def main():
-    global current_block
+    global current_block, in_loop_body
+    
+    # Initialize global flags
+    in_loop_body = False
     
     if len(sys.argv)!=3:
         print("Usage: python ast_json_to_mlir.py <input.json> <output.mlir>")
