@@ -83,6 +83,13 @@ class QuantumDivOp(IRDLOperation):
     rhs  = operand_def()
     result = result_def()
 
+# Unary Negation op
+@irdl_op_definition 
+class QuantumNegOp(IRDLOperation):
+    name = "quantum.neg"
+    operand = operand_def()
+    result = result_def()
+
 # Boolean ops
 @irdl_op_definition
 class QuantumXorOp(IRDLOperation):
@@ -216,6 +223,7 @@ def register_quantum_dialect(ctx: Context):
       QuantumInitOp, QuantumNotOp, QuantumCNOTOp, QuantumMeasureOp,
       QuantumFuncOp,
       QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
+      QuantumNegOp,
       QuantumXorOp, QuantumAndOp, QuantumOrOp,
       # New ops
       QuantumIncrementOp, QuantumDecrementOp,

@@ -9,6 +9,7 @@ from quantum_dialect import (
     register_quantum_dialect,
     QuantumInitOp, QuantumMeasureOp,
     QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
+    QuantumNegOp,
     QuantumXorOp, QuantumAndOp, QuantumOrOp,
     QuantumFuncOp,
     QuantumIncrementOp, QuantumDecrementOp,
@@ -458,7 +459,18 @@ def translate_stmt(stmt, blk):
                 
                 if operand_var and operand_var in ssa_map:
                     debug_print(f"Found operand: {operand_var}")
-                    
+                   
+                    # Handle unary minus (negation)
+                    if opcode == "-" or opcode == "minus":
+                        debug_print(f"Creating negation for {operand_var}")
+                        op = QuantumNegOp(
+                                result_types=[i32],
+                                operands=[ssa_map[operand_var]]
+                                )
+                        blk.add_op(op)
+                        ssa_map[var] = op.results[0]
+                        debug_print(f"Negation created: {var} = -{operand_var}")
+
                     # Handle increment (++) operators
                     if opcode == "++" or opcode == "inc":
                         if is_postfix:
@@ -639,6 +651,20 @@ def translate_stmt(stmt, blk):
                     operand_var = extract_var_name(operand_node)
                     
                     if operand_var and operand_var in ssa_map:
+                        # Handle unary minus (negation)
+                        if opcode == "-" or opcode == "minus":
+                            debug_print(f"Creating negation assignment: {lhs_var} = -{operand_var}")
+                            op = QuantumNegOp(
+                                    result_types=[i32],
+                                    operands=[ssa_map[operand_var]]
+                                    )
+                            blk.add_op(op)
+                            ssa_map[lhs_var] = op.results[0]
+
+                            # Track variable modification in loop body 
+                            if in_loop_body:
+                                loop_modified_vars.add(lhs_var)
+                                debug_print(f"Tracked {lhs_var} as modified in loop body (negation assignment)")
                         # Handle increment (++) operators
                         if opcode == "++" or opcode == "inc":
                             if is_postfix:
@@ -711,6 +737,17 @@ def translate_stmt(stmt, blk):
         operand_var = extract_var_name(operand_node)
         
         if operand_var and operand_var in ssa_map:
+            # Handle unary minus (negation) - standalone negation doesn't modify the original variable 
+            if opcode == "-" or opcode == "minus":
+                debug_print(f"Standalone negation of {operand_var} (no assignment)")
+                # For standalone negation, we might just want to create the operation but not store it 
+                # This is unusal in C, but we can handle it 
+                op = QuantumNegOp(
+                        result_types=[i32],
+                        operands=[ssa_map[operand_var]]
+                        )
+                blk.add_op(op)
+
             # Handle increment (++) operators
             if opcode == "++" or opcode == "inc":
                 if is_postfix:
