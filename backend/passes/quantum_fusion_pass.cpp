@@ -1,108 +1,155 @@
-#include <string>
+// backend/passes/quantum_fusion_pass.cpp
+#include "quantum_fusion_pass.h"
+#include "EliminateAdjacentCx.h"
+#include "EliminateAdjacentX.h"
+#include "EliminateAdjacentCcx.h"
+#include "IdentityRemoval.h"
+#include "ExtendedConstantFolding.h"
+#include "DeadAllocRemoval.h"
+#include "ConstantFolding.h"
+#include "AncillaHoist.h"
+#include "CommutativeCancellation.h"
+#include "HighLevelFusion.h"
+#include "HighLevelFusionExtended.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
-#include <regex>
 
-// Simple function to copy a file with basic optimizations
-bool optimizeMlirFile(const std::string &inputFile, const std::string &outputFile) {
-    // Read the input file into memory
-    std::ifstream inFile(inputFile);
-    if (!inFile) {
-        std::cerr << "Error opening input file: " << inputFile << std::endl;
-        return false;
-    }
-    
-    std::stringstream buffer;
-    buffer << inFile.rdbuf();
-    std::string content = buffer.str();
-    std::string originalContent = content; // Save the original for comparison
-    
-    // Print first few lines for debugging
-    std::cout << "Processing MLIR file: " << inputFile << std::endl;
-    
-    // Apply simple text-based pattern matching for adjacent CNOT gates
-    // Look for patterns like:
-    // q.cx %0, %1
-    // q.cx %0, %1
-    
-    // This regex captures identical adjacent CNOTs with the same qubits
-    std::regex identicalCxPattern(R"((\s*)(q\.cx\s+(%\w+)\s*,\s*(%\w+))(\s*)\n\1(q\.cx\s+\3\s*,\s*\4)(\s*))");
-    
-    // Count the actual optimizations
-    int optimizationCount = 0;
-    
-    // Track each optimization for detailed reporting
-    std::vector<std::string> optimizations;
-    
-    // Temporary string for manipulations
-    std::string tempContent = content;
-    std::smatch match;
-    
-    // Find and process each match
-    while (std::regex_search(tempContent, match, identicalCxPattern)) {
-        optimizationCount++;
-        
-        // Extract information about the optimization
-        std::string indent = match[1].str();
-        std::string firstCX = match[2].str();
-        std::string ctrl = match[3].str();
-        std::string target = match[4].str();
-        
-        // Save the optimization details
-        std::stringstream optInfo;
-        optInfo << "Optimization #" << optimizationCount << ": Removed adjacent CNOTs " 
-                << firstCX << " (line " << std::count(content.begin(), 
-                                                     content.begin() + match.position(), '\n') + 1 << ")";
-        optimizations.push_back(optInfo.str());
-        
-        // Update the search position
-        tempContent = match.suffix();
-    }
-    
-    // Now actually perform the replacement
-    std::string result = std::regex_replace(content, identicalCxPattern, 
-                                           "$1// OPTIMIZED: Cancelled adjacent CNOTs ($3,$4)$5");
-    
-    // Write the result to the output file
-    std::ofstream outFile(outputFile);
-    if (!outFile) {
-        std::cerr << "Error opening output file: " << outputFile << std::endl;
-        return false;
-    }
-    
-    // Add optimization summary to the top of the file
-    outFile << "// Quantum Fusion Optimization Summary:\n";
-    outFile << "// " << optimizationCount << " CNOT cancellations applied\n";
-    if (optimizationCount > 0) {
-        outFile << "//\n";
-        for (const auto& opt : optimizations) {
-            outFile << "// " << opt << "\n";
+#include <unordered_set>
+
+
+bool optimizeMlirFile(const std::string &inFile,
+                      const std::string &outFile) {
+  std::ifstream in(inFile);
+  if (!in) return false;
+  std::ostringstream buf; buf << in.rdbuf();
+  std::string content = buf.str();
+
+  int total = 0;
+  
+  std::vector<std::string> applied;
+  auto run_pass = [&](auto&& fn, const char* name) {
+        int c = fn(content);
+        if(c > 0) {
+            total += c;
+            applied.push_back(name);
         }
-        outFile << "//\n";
-    }
-    outFile << result;
+  };
+
+  //total += eliminateAdjacentCx(content);
+  //total += eliminateAdjacentX(content);
+  //total += eliminateAdjacentCcx(content);
+  //total += removeDeadAllocs(content);
+  //total += foldInitSubZero(content);
+  //total += foldAddZero(content);
+  //total += removeIdentityOps(content);
+  //total += fuseHighLevelExtended(content);
+  //total += hoistSingleAlloc(content);
+  //total += commuteCancelCx(content);
+  //total += fuseHighLevel(content);
+
+  run_pass(eliminateAdjacentCx,       "EliminateAdjacentCx");
+  run_pass(eliminateAdjacentX,        "EliminateAdjacentX");
+  run_pass(removeIdentityOps,         "IdentityRemoval");
+  run_pass(eliminateAdjacentCcx,      "EliminateAdjacentCcx");
+  run_pass(removeDeadAllocs,          "DeadAllocRemoval");
+  run_pass(foldInitSubZero,           "ConstantFolding");
+  run_pass(foldAddZero,               "ExtendedConstantFolding");
+  run_pass(commuteCancelCx,           "CommutativeCancellation");
+  run_pass(hoistSingleAlloc,          "AncillaHoist");
+  //run_pass(fuseExtendedRippleCarryAdder, "RippleCarryAdderFusion");
+  run_pass(fuseHighLevelExtended,     "HighLevelFusionExtended");
+  run_pass(fuseHighLevel,             "HighLevelFusion");
+  
+
+
+  
+  // Create a prepass optimization to identify potential patterns
+  // This helps with creating testcases for optimizations
+  auto analyze_patterns = [&]() {
+    std::unordered_set<std::string> possiblePatterns;
     
-    // Print optimization summary to console
-    std::cout << "✅ Optimization completed for: " << outputFile << std::endl;
-    std::cout << "📊 Summary: " << optimizationCount << " CNOT cancellations applied" << std::endl;
+    // Look for adjacent operations of the same type
+    std::istringstream iss(content);
+    std::string line, prevLine;
+    std::string prevOp;
     
-    if (optimizationCount > 0) {
-        std::cout << "📋 Details:" << std::endl;
-        for (const auto& opt : optimizations) {
-            std::cout << "  • " << opt << std::endl;
+    while (std::getline(iss, line)) {
+        if (line.find("q.cx") != std::string::npos) {
+            if (prevOp == "q.cx") {
+                possiblePatterns.insert("Adjacent CX gates");
+            }
+            prevOp = "q.cx";
+        } 
+        else if (line.find("q.x") != std::string::npos) {
+            if (prevOp == "q.x") {
+                possiblePatterns.insert("Adjacent X gates");
+            }
+            prevOp = "q.x";
+        }
+        else if (line.find("q.ccx") != std::string::npos) {
+            if (prevOp == "q.ccx") {
+                possiblePatterns.insert("Adjacent CCX gates");
+            }
+            prevOp = "q.ccx";
+        }
+        else {
+            prevOp = "";
         }
         
-        // Get original and new line counts for comparison
-        int originalLines = std::count(originalContent.begin(), originalContent.end(), '\n') + 1;
-        int newLines = std::count(result.begin(), result.end(), '\n') + 1;
-        std::cout << "📉 Size reduction: " << originalLines << " lines → " << newLines 
-                  << " lines (" << (100.0 * (originalLines - newLines) / originalLines) 
-                  << "% smaller)" << std::endl;
-    } else {
-        std::cout << "ℹ️ No optimization opportunities found" << std::endl;
+        prevLine = line;
     }
     
-    return true;
+    // Look for identity operations (CX with same control and target)
+    iss.clear();
+    iss.seekg(0);
+    
+    while (std::getline(iss, line)) {
+        if (line.find("q.cx") != std::string::npos) {
+            // Simplified check: look for patterns like %a[i], %a[i]
+            size_t pos = line.find("q.cx");
+            if (pos != std::string::npos) {
+                std::string rest = line.substr(pos + 4);
+                size_t firstVar = rest.find("%");
+                if (firstVar != std::string::npos) {
+                    size_t comma = rest.find(",", firstVar);
+                    if (comma != std::string::npos) {
+                        std::string firstOperand = rest.substr(firstVar, comma - firstVar);
+                        std::string secondHalf = rest.substr(comma + 1);
+                        if (secondHalf.find(firstOperand) != std::string::npos) {
+                            possiblePatterns.insert("Identity CX operations");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Print potential optimization opportunities
+    if (!possiblePatterns.empty()) {
+        std::cout << "Potential optimization opportunities detected:\n";
+        for (const auto& pattern : possiblePatterns) {
+            std::cout << "  - " << pattern << "\n";
+        }
+    }
+  };
+  
+  analyze_patterns();
+  
+  std::ofstream out(outFile);
+  if (!out) return false;
+  // build a comma-separated list
+  std::ostringstream list;
+  for (size_t i = 0; i < applied.size(); ++i) {
+    if (i) list << ", ";
+    list << applied[i];
+  }
+  out << "// Quantum Fusion Optimization Summary:\n"
+      << "// " << total << " optimizations applied: " << list.str() << "\n"
+      << content;
+    std::cout << "📊 Summary: " << total
+            << " optimizations applied [" << list.str() << "]\n";
+  return true;
 }
+

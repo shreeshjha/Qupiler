@@ -59,13 +59,32 @@ target_include_directories(direct_ir_gen PRIVATE
 # -----------------------------------------------------------------------------
 # 3) Quantum optimization library
 # -----------------------------------------------------------------------------
-add_library(QuantumPassLib STATIC
-  backend/passes/quantum_fusion_pass.cpp
+
+# collect all of pass implementation in backend/passes/
+file(GLOB QUANTUM_PASS_SRCS
+    ${CMAKE_SOURCE_DIR}/backend/passes/*.cpp
 )
 
-target_include_directories(QuantumPassLib PUBLIC
-  ${CMAKE_SOURCE_DIR}
+message(STATUS "⟳ QuantumPassLib will compile these sources:\n  ${QUANTUM_PASS_SRCS}")
+
+
+# Exclude the old amalgam driver:
+list(REMOVE_ITEM QUANTUM_PASS_SRCS
+    ${CMAKE_SOURCE_DIR}/backend/passes/quantum_fusion_pass_old.cpp
 )
+add_library(QuantumPassLib STATIC
+    ${QUANTUM_PASS_SRCS}
+)
+target_include_directories(QuantumPassLib PUBLIC
+    ${CMAKE_SOURCE_DIR}/backend/passes
+)
+
+
+#target_include_directories(QuantumPassLib
+#    PUBLIC
+#        ${CMAKE_SOURCE_DIR}
+#        ${CMAKE_SOURCE_DIR}/backend/passes
+#)
 
 # -----------------------------------------------------------------------------
 # 4) Frontend driver
@@ -93,6 +112,31 @@ target_link_libraries(frontend_driver PRIVATE
 )
 
 # -----------------------------------------------------------------------------
+# 5) Optimization Test executable
+# -----------------------------------------------------------------------------
+add_executable(optimization_test
+  tools/optimization_test.cpp
+)
+
+target_include_directories(optimization_test PRIVATE
+  ${CMAKE_SOURCE_DIR}
+  ${LLVM_INCLUDE_DIRS}
+  ${MLIR_INCLUDE_DIRS}
+)
+
+target_compile_definitions(optimization_test PRIVATE
+  ${LLVM_DEFINITIONS}
+)
+
+target_link_libraries(optimization_test PRIVATE
+  QuantumPassLib
+  MLIRIR
+  MLIRParser
+  MLIRTransforms
+  MLIRSupport
+)
+
+# -----------------------------------------------------------------------------
 # Usage:
 #
 #   mkdir build && cd build
@@ -102,6 +146,7 @@ target_link_libraries(frontend_driver PRIVATE
 # Binaries produced in build/:
 #   - direct_ir_gen
 #   - frontend_driver
+#   - optimization_test
 #
 # Example frontend_driver invocation:
 #   cd experiments
