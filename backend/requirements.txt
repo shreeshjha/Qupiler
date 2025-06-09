@@ -1,0 +1,27 @@
+# Quantum Compilation Framework Requirements
+# Core dependencies for the enhanced quantum compiler
+
+# Core Python packages
+numpy>=1.21.0
+scipy>=1.7.0
+
+# Quantum computing frameworks (optional but recommended)
+qiskit>=0.39.0              # IBM Quantum support
+cirq>=1.0.0                 # Google Cirq support  
+azure-quantum>=0.25.0       # Microsoft Azure Quantum support
+
+# Graph and optimization libraries
+networkx>=2.6               # Graph algorithms for connectivity
+matplotlib>=3.5.0           # Visualization
+sympy>=1.9                  # Symbolic mathematics
+
+# Optional advanced dependencies
+# pyzx>=0.7.0               # ZX-calculus verification (uncomment if available)
+# z3-solver>=4.8.0          # SMT solving for verification (uncomment if available)
+
+# Development and testing dependencies (optional)
+# pytest>=6.0.0            # Testing framework
+# pytest-benchmark>=3.4.0  # Performance benchmarking
+# black>=22.0.0             # Code formatting
+# flake8>=4.0.0             # Code linting
+# mypy>=0.910               # Type checking
