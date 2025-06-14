@@ -204,9 +204,9 @@ class GenericQiskitGenerator:
                             elif circuit_type == "mod":
                                 result = a_val % b_val if b_val != 0 else 0
                             elif circuit_type == "and":
-                                result = 1 if (a_val and b_val) else 0
+                                result = a_val & b_val
                             elif circuit_type == "or":
-                                result = 1 if (a_val or b_val) else 0
+                                result = a_val | b_val
                             elif circuit_type == "xor":
                                 result = a_val ^ b_val
                             elif circuit_type == "post_inc":
@@ -356,9 +356,13 @@ class GenericQiskitGenerator:
             "",
             "def apply_div_circuit(qc, a_reg, b_reg, result_reg):",
             "    '''Quantum divider: result = a / b (simplified)'''",
-            "    # Simplified division for demonstration",
-            "    for i in range(min(len(a_reg), len(result_reg))):",
-            "        qc.cx(a_reg[i], result_reg[i])",
+            # "    # Simplified division for demonstration",
+            # "    for i in range(min(len(a_reg), len(result_reg))):",
+            # "        qc.cx(a_reg[i], result_reg[i])",
+            "    if len(a_reg) > 0 and len(result_reg) > 0:",
+            "       qc.cx(a_reg[0], result_reg[0])",
+            "    if len(a_reg) > 1 and len(result_reg) > 1:",
+            "       qc.cx(a_reg[1], result_reg[1])",
             "",
             "def apply_mod_circuit(qc, a_reg, b_reg, result_reg):",
             "    '''Quantum modulo: result = a % b (simplified)'''",
@@ -371,11 +375,28 @@ class GenericQiskitGenerator:
             "    '''Logical AND: result = a && b'''",
             "    qc.ccx(a_reg[0], b_reg[0], result_reg[0])",
             "",
+            # "def apply_or_circuit(qc, a_reg, b_reg, result_reg):",
+            # "    '''Logical OR: result = a || b'''",
+            # "    qc.cx(a_reg[0], result_reg[0])",
+            # "    qc.cx(b_reg[0], result_reg[0])",
+            # "    qc.ccx(a_reg[0], b_reg[0], result_reg[0])",
+            # ""
+        
             "def apply_or_circuit(qc, a_reg, b_reg, result_reg):",
-            "    '''Logical OR: result = a || b'''",
-            "    qc.cx(a_reg[0], result_reg[0])",
-            "    qc.cx(b_reg[0], result_reg[0])",
-            "    qc.ccx(a_reg[0], b_reg[0], result_reg[0])",
+            "    num_bits = min(len(a_reg), len(b_reg), len(result_reg))",
+            "    for i in range(num_bits):",
+            "        if a_reg == result_reg:",
+            "           qc.cx(b_reg[i], result_reg[i])",
+            "           qc.ccx(a_reg[i], b_reg[i], result_reg[i])",
+            "        elif a_reg != result_reg and b_reg != result_reg and a_reg != b_reg:",
+            "            qc.cx(a_reg[i], result_reg[i])",
+            "            qc.cx(b_reg[i], result_reg[i])",
+            "            qc.ccx(a_reg[i], b_reg[i], result_reg[i])",
+            "        else:",
+            "            if a_reg != result_reg and a_reg[i] != result_reg[i]:",
+            "                qc.cx(a_reg[i], result_reg[i])",
+            "            if b_reg != result_reg and b_reg[i] != result_reg[i]:",
+            "                qc.cx(b_reg[i], result_reg[i])",
             "",
             "def apply_xor_circuit(qc, a_reg, b_reg, result_reg):",
             "    '''XOR: result = a ^ b'''",
@@ -622,13 +643,15 @@ class GenericQiskitGenerator:
             "    ",
             "    for bitstring, count in sorted_results[:10]:  # Show top 10",
             "        # Convert bitstring to decimal (LSB interpretation)",
-            "        decimal = int(bitstring[::-1], 2)  # Reverse for LSB",
+            # "        decimal = int(bitstring[::-1], 2)  # Reverse for LSB",
+            "        decimal = int(bitstring, 2)",
             "        percentage = (count / 1024) * 100",
             "        print(f'  {bitstring} (decimal: {decimal:2d}) -> {count:4d} shots ({percentage:5.1f}%)')",
             "    ",
             "    # Get most frequent result",
             "    most_frequent_bits, most_frequent_count = sorted_results[0]",
-            "    quantum_result = int(most_frequent_bits[::-1], 2)",
+            # "    quantum_result = int(most_frequent_bits[::-1], 2)",
+            "    quantum_result = int(most_frequent_bits, 2)",
             "    ",
             "    print(f'\\n🎯 Quantum Result: {quantum_result} (binary: {most_frequent_bits})')",
             "    print(f'   Frequency: {most_frequent_count}/1024 ({(most_frequent_count/1024)*100:.1f}%)')",

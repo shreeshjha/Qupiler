@@ -1,9 +1,9 @@
 {
-  "quantum_result": 12,
-  "expected_result": 3,
-  "accuracy": "DIFF_9",
-  "operations_count": 4,
-  "circuit_depth": 2,
-  "gate_count": 9,
-  "qubit_count": 12
+  "quantum_result": 0,
+  "expected_result": 0,
+  "accuracy": "PERFECT",
+  "operations_count": 24,
+  "circuit_depth": 9,
+  "gate_count": 28,
+  "qubit_count": 36
 }

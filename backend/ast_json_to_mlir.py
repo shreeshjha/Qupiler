@@ -10,6 +10,7 @@ from quantum_dialect import (
     QuantumInitOp, QuantumMeasureOp,
     QuantumAddOp, QuantumSubOp, QuantumMulOp, QuantumDivOp,
     QuantumNegOp,
+    QuantumNotOp,
     QuantumXorOp, QuantumAndOp, QuantumOrOp,
     QuantumFuncOp,
     QuantumIncrementOp, QuantumDecrementOp,
@@ -520,6 +521,17 @@ def translate_stmt(stmt, blk):
                             ssa_map[var] = op.results[0]
                             # Update the original variable too
                             ssa_map[operand_var] = op.results[0]
+
+                    # Handle bitwise NOT (~) operator
+                    elif opcode == "~" or opcode == "not":
+                        debug_print(f"Creating bitwise NOT for {operand_var}")
+                        op = QuantumNotOp(
+                            result_types=[i32],
+                            operands=[ssa_map[operand_var]]
+                        )
+                        blk.add_op(op)
+                        ssa_map[var] = op.results[0]
+                        debug_print(f"Bitwise NOT created: {var} = ~{operand_var}")
                 else:
                     # fallback zero init if we can't process unary op
                     debug_print(f"Could not process unary op for {var}, using fallback")

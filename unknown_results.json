@@ -1,0 +1,9 @@
+{
+  "test_case": "unknown",
+  "quantum_result": 4,
+  "expected_result": 0,
+  "accuracy": "DIFF_4",
+  "all_measurements": {
+    "0100": 1024
+  }
+}
