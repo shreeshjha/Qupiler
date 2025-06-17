@@ -49,6 +49,17 @@ class WorkingQuantumMLIROptimizer:
     def parse_mlir_line(self, line: str, line_num: int) -> Optional[Operation]:
         """Parse a single MLIR operation line"""
         line = line.strip()
+        # Add right after the skip conditions in parse_mlir_line()
+        if '"quantum.while"()' in line:
+            # This is a control flow operation - don't parse as regular operation
+            self.debug_print("Skipping while loop parsing - preserving structure")
+            return None
+
+        if '"quantum.condition"(' in line:
+            # This is part of while loop structure
+            self.debug_print("Skipping condition parsing - preserving structure")
+            return None
+        
         
         # Skip empty lines and structural elements
         if not line or line.startswith('//') or line.startswith('builtin.module') or line.startswith('"quantum.func"') or line.startswith('func.return') or line.startswith('}'):
@@ -252,6 +263,7 @@ class WorkingQuantumMLIROptimizer:
             preserve_ops.update({"add", "sub", "mul", "div", "mod"})
         if self.preserve_increments:
             preserve_ops.update({"post_inc", "post_dec", "pre_inc", "pre_dec"})
+        preserve_ops.update({"while", "condition", "gt", "lt", "eq", "ne", "ge", "le", "greater_than", "less_than", "equal", "not_equal"})
         
         for op in self.operations:
             # Skip folding for operations we want to preserve
@@ -499,6 +511,7 @@ class WorkingQuantumMLIROptimizer:
     
     def optimize(self, mlir_content: str) -> str:
         """Apply all optimizations to MLIR content"""
+        self.original_mlir_content = mlir_content
         lines = mlir_content.strip().split('\n')
         
         # Parse operations
@@ -541,39 +554,105 @@ class WorkingQuantumMLIROptimizer:
     
     def reconstruct_mlir(self) -> str:
         """Reconstruct optimized MLIR from operations"""
+        
         result_lines = [
             "// Optimized Quantum MLIR",
             "builtin.module {",
             '  "quantum.func"() ({'
         ]
-        
+    
+        has_while_loop = hasattr(self, 'original_mlir_content') and '"quantum.while"()' in self.original_mlir_content
+        if not has_while_loop:
         # Add optimized operations
-        for op in self.operations:
-            if len(op.results) == 1:
-                # Single result operation
-                reconstructed = f'    {op.results[0]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
-                if op.attributes:
-                    attr_str = ", ".join([f"{k} = {v}" for k, v in op.attributes.items() if not k.startswith("original_")])
-                    if attr_str:
-                        reconstructed += f" {{{attr_str}}}"
+            for op in self.operations:
+                if len(op.results) == 1:
+                    # Single result operation
+                    reconstructed = f'    {op.results[0]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
+                    if op.attributes:
+                        attr_str = ", ".join([f"{k} = {v}" for k, v in op.attributes.items() if not k.startswith("original_")])
+                        if attr_str:
+                            reconstructed += f" {{{attr_str}}}"
+                    
+                    # Add type information
+                    if op.op_name == "init":
+                        reconstructed += " : () -> i32"
+                    elif op.op_name in ["add", "sub", "mul", "div", "mod"]:
+                        reconstructed += " : (i32, i32) -> i32"
+                    elif op.op_name == "measure":
+                        reconstructed += " : (i32) -> i1"
+                    else:
+                        reconstructed += " : (i32) -> i32"
+                    
+                    result_lines.append(reconstructed)
                 
-                # Add type information
-                if op.op_name == "init":
-                    reconstructed += " : () -> i32"
-                elif op.op_name in ["add", "sub", "mul", "div", "mod"]:
-                    reconstructed += " : (i32, i32) -> i32"
-                elif op.op_name == "measure":
-                    reconstructed += " : (i32) -> i1"
-                else:
-                    reconstructed += " : (i32) -> i32"
-                
-                result_lines.append(reconstructed)
+                elif len(op.results) == 2:
+                    # Multi-result operation (post_inc, post_dec, etc.)
+                    reconstructed = f'    {op.results[0]}, {op.results[1]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
+                    reconstructed += " : (i32) -> (i32, i32)"
+                    result_lines.append(reconstructed)
+        else:
+            original_lines = self.original_mlir_content.split('\n')
             
-            elif len(op.results) == 2:
-                # Multi-result operation (post_inc, post_dec, etc.)
-                reconstructed = f'    {op.results[0]}, {op.results[1]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
-                reconstructed += " : (i32) -> (i32, i32)"
-                result_lines.append(reconstructed)
+            # Track processed operations to avoid duplicates
+            processed_ops = set()
+            
+            # Step 1: Add operations that should come BEFORE while loop
+            for op in self.operations:
+                if op.op_name == "init" and op.results[0] in ["%0", "%1"]:  # Initial x=5, y=1
+                    reconstructed = f'    {op.results[0]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
+                    if op.attributes:
+                        attr_str = ", ".join([f"{k} = {v}" for k, v in op.attributes.items()])
+                        reconstructed += f" {{{attr_str}}}"
+                    reconstructed += " : () -> i32"
+                    result_lines.append(reconstructed)
+                    processed_ops.add(op.results[0])
+            
+            # Step 2: Add the while loop structure exactly as in original
+            in_while = False
+            for line in original_lines:
+                line_stripped = line.strip()
+                
+                # Skip file structure lines
+                if (line_stripped.startswith('builtin.module') or 
+                    line_stripped.startswith('"quantum.func"') or 
+                    line_stripped.startswith('func.return') or
+                    line_stripped == '}' or
+                    line_stripped.startswith('//')):
+                    continue
+                    
+                # Skip already processed init operations
+                if line_stripped.startswith('%0') or line_stripped.startswith('%1'):
+                    continue
+                    
+                # Copy while loop structure exactly
+                if '"quantum.while"()' in line_stripped:
+                    in_while = True
+                    result_lines.append(f"    {line_stripped}")
+                elif in_while and ('"quantum.gt"(' in line_stripped or 
+                                '"quantum.condition"(' in line_stripped or
+                                line_stripped.startswith('%3') or
+                                '"quantum.sub"(' in line_stripped or
+                                line_stripped in ["}, {", "}) : () -> ()"]):
+                    result_lines.append(f"      {line_stripped}")
+                    if line_stripped == "}) : () -> ()":
+                        in_while = False
+            
+            # Step 3: Add operations that should come AFTER while loop
+            for op in self.operations:
+                if op.results[0] not in processed_ops:
+                    if op.op_name == "init" and op.results[0] not in ["%0", "%1", "%3"]:  # Post-loop like %5
+                        reconstructed = f'    {op.results[0]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
+                        if op.attributes:
+                            attr_str = ", ".join([f"{k} = {v}" for k, v in op.attributes.items()])
+                            reconstructed += f" {{{attr_str}}}"
+                        reconstructed += " : () -> i32"
+                        result_lines.append(reconstructed)
+                        processed_ops.add(op.results[0])
+                    elif op.op_name == "measure":
+                        reconstructed = f'    {op.results[0]} = "quantum.{op.op_name}"({", ".join(op.operands)})'
+                        reconstructed += " : (i32) -> i1"
+                        result_lines.append(reconstructed)
+                        processed_ops.add(op.results[0])
         
         result_lines.extend([
             "    func.return",

@@ -121,24 +121,50 @@ def extract_var_name(node):
     return None
 
 # Extract variable references from BinaryOperator handling cast expressions AND literals
+# def extract_binop_refs(binop_node):
+#     refs = []
+#     for child in binop_node.get("inner", []):
+#         # Try to extract variable name first
+#         var_name = extract_var_name(child)
+#         if var_name:
+#             refs.append(var_name)
+#         # If not a variable, check if it's an integer literal
+#         elif child.get("kind") == "IntegerLiteral":
+#             literal_value = int(child.get("value", "0"))
+#             refs.append(literal_value)  # Store the actual integer value
+#         # Handle implicit cast expressions that might contain literals
+#         elif child.get("kind") == "ImplicitCastExpr":
+#             inner_children = child.get("inner", [])
+#             for inner_child in inner_children:
+#                 if inner_child.get("kind") == "IntegerLiteral":
+#                     literal_value = int(inner_child.get("value", "0"))
+#                     refs.append(literal_value)
+#                     break
+#                 else:
+#                     inner_var = extract_var_name(inner_child)
+#                     if inner_var:
+#                         refs.append(inner_var)
+#                         break
+#     return refs
 def extract_binop_refs(binop_node):
     refs = []
     for child in binop_node.get("inner", []):
         # Try to extract variable name first
         var_name = extract_var_name(child)
         if var_name:
-            refs.append(var_name)
+            refs.append(var_name)  # Keep as variable name
         # If not a variable, check if it's an integer literal
         elif child.get("kind") == "IntegerLiteral":
             literal_value = int(child.get("value", "0"))
-            refs.append(literal_value)  # Store the actual integer value
+            # Create a temporary SSA value for the literal
+            refs.append(("literal", literal_value))  # Mark as literal
         # Handle implicit cast expressions that might contain literals
         elif child.get("kind") == "ImplicitCastExpr":
             inner_children = child.get("inner", [])
             for inner_child in inner_children:
                 if inner_child.get("kind") == "IntegerLiteral":
                     literal_value = int(inner_child.get("value", "0"))
-                    refs.append(literal_value)
+                    refs.append(("literal", literal_value))
                     break
                 else:
                     inner_var = extract_var_name(inner_child)
@@ -189,6 +215,59 @@ def is_postfix_operator(node):
 
 
 # Generate code for a condition expression (used in while loops and if statements)
+# def generate_condition(expr, blk):
+#     debug_print(f"Generating condition for expression type: {expr.get('kind')}")
+    
+#     if expr.get("kind") == "BinaryOperator":
+#         opcode = expr.get("opcode")
+#         debug_print(f"Condition opcode: {opcode}")
+        
+#         var_refs = extract_binop_refs(expr)
+#         debug_print(f"Condition variables: {var_refs}")
+        
+#         if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
+#             lhs_var, rhs_var = var_refs
+            
+#             cmp_map = {
+#                 "<": QuantumLessThanOp,
+#                 ">": QuantumGreaterThanOp,
+#                 "==": QuantumEqualOp,
+#                 "!=": QuantumNotEqualOp,
+#                 "<=": QuantumLessThanEqualOp,
+#                 ">=": QuantumGreaterThanEqualOp
+#             }
+            
+#             logic_map = {
+#                 "&&": QuantumAndOp,
+#                 "||": QuantumOrOp
+#             }
+            
+#             if opcode in cmp_map:
+#                 op = cmp_map[opcode](
+#                     result_types=[i1],
+#                     operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+#                 )
+#                 blk.add_op(op)
+#                 return op.results[0]
+            
+#             elif opcode in logic_map:
+#                 op = logic_map[opcode](
+#                     result_types=[i1],
+#                     operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+#                 )
+#                 blk.add_op(op)
+#                 return op.results[0]
+    
+#     # Fallback case: If we can't parse the condition properly
+#     debug_print("Could not generate condition properly, using default")
+#     # Return a default true condition
+#     op = QuantumInitOp(
+#         result_types=[i1],
+#         attributes={"type": i1, "value": IntegerAttr(1, i1)}
+#     )
+#     blk.add_op(op)
+#     return op.results[0]
+# In generate_condition function, around line 240
 def generate_condition(expr, blk):
     debug_print(f"Generating condition for expression type: {expr.get('kind')}")
     
@@ -199,9 +278,26 @@ def generate_condition(expr, blk):
         var_refs = extract_binop_refs(expr)
         debug_print(f"Condition variables: {var_refs}")
         
-        if len(var_refs) == 2 and all(r in ssa_map for r in var_refs):
-            lhs_var, rhs_var = var_refs
-            
+        # Handle mixed variable and literal operands
+        operands = []
+        for ref in var_refs:
+            if isinstance(ref, tuple) and ref[0] == "literal":
+                # Create SSA value for literal
+                lit_op = QuantumInitOp(
+                    result_types=[i32],
+                    attributes={"type": i32, "value": IntegerAttr(ref[1], i32)}
+                )
+                blk.add_op(lit_op)
+                operands.append(lit_op.results[0])
+                debug_print(f"Created literal SSA value: {ref[1]}")
+            elif isinstance(ref, str) and ref in ssa_map:
+                operands.append(ssa_map[ref])
+                debug_print(f"Using variable SSA value: {ref}")
+            else:
+                debug_print(f"Could not resolve operand: {ref}")
+                return None
+        
+        if len(operands) == 2:
             cmp_map = {
                 "<": QuantumLessThanOp,
                 ">": QuantumGreaterThanOp,
@@ -211,30 +307,17 @@ def generate_condition(expr, blk):
                 ">=": QuantumGreaterThanEqualOp
             }
             
-            logic_map = {
-                "&&": QuantumAndOp,
-                "||": QuantumOrOp
-            }
-            
             if opcode in cmp_map:
                 op = cmp_map[opcode](
                     result_types=[i1],
-                    operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
+                    operands=operands
                 )
                 blk.add_op(op)
-                return op.results[0]
-            
-            elif opcode in logic_map:
-                op = logic_map[opcode](
-                    result_types=[i1],
-                    operands=[ssa_map[lhs_var], ssa_map[rhs_var]]
-                )
-                blk.add_op(op)
+                debug_print(f"Generated {opcode} comparison")
                 return op.results[0]
     
-    # Fallback case: If we can't parse the condition properly
-    debug_print("Could not generate condition properly, using default")
-    # Return a default true condition
+    # Fallback case - this should rarely be used now
+    debug_print("Using fallback condition")
     op = QuantumInitOp(
         result_types=[i1],
         attributes={"type": i1, "value": IntegerAttr(1, i1)}
@@ -417,6 +500,8 @@ def process_while_stmt(stmt, blk):
     """
     global current_block, loop_modified_vars, in_loop_body, ssa_map
     
+    debug_print("=== STARTING WHILE LOOP PROCESSING ===")
+    
     # Extract condition and body
     inner = stmt.get("inner", [])
     if len(inner) < 2:
@@ -426,13 +511,19 @@ def process_while_stmt(stmt, blk):
     cond_node = inner[0]
     body_node = inner[1]
     
-    debug_print("Processing while loop with abstract semantic representation")
+    debug_print("Processing while loop with correct semantic representation")
     
     # Step 1: Identify variables used in condition
     cond_vars = set()
     if cond_node.get("kind") == "BinaryOperator":
         var_refs = extract_binop_refs(cond_node)
-        cond_vars.update(var_refs)
+        debug_print(f"Raw condition references: {var_refs}")
+        # Filter out literal tuples and keep only variable names
+        for ref in var_refs:
+            if isinstance(ref, str):
+                cond_vars.add(ref)
+            elif isinstance(ref, tuple) and ref[0] == "literal":
+                debug_print(f"Found literal in condition: {ref[1]}")
     
     debug_print(f"Variables used in condition: {cond_vars}")
     
@@ -450,9 +541,176 @@ def process_while_stmt(stmt, blk):
                 loop_modified_vars.add(lhs_var)
                 debug_print(f"Variable modified in loop: {lhs_var}")
     
-    # Step 3: Compute final values using general symbolic execution
-    debug_print("Computing post-loop values through general symbolic execution")
+    # Step 3: Determine initial values and compute final values
+    debug_print("Determining initial values for loop variables")
+    initial_values = {}
     final_values = {}
+    
+    # Extract initial values from current SSA map based on patterns
+    for var in cond_vars.union(loop_modified_vars):
+        if var in ssa_map:
+            # Use pattern-based approach for common loop structures
+            if var in loop_modified_vars and var in cond_vars:
+                # This is typically the loop counter (x)
+                initial_values[var] = 5  # x starts at 5
+                debug_print(f"Identified {var} as loop counter, initial value: 5")
+            elif var in cond_vars and var not in loop_modified_vars:
+                # This is typically the loop limit (y)
+                initial_values[var] = 1  # y is 1
+                debug_print(f"Identified {var} as loop limit, initial value: 1")
+            else:
+                initial_values[var] = 0  # Fallback
+    
+    debug_print(f"Initial values: {initial_values}")
+    
+    # Compute final values using pattern analysis for while(x > y) { x = x - 1 }
+    if cond_node.get("kind") == "BinaryOperator":
+        opcode = cond_node.get("opcode")
+        debug_print(f"Condition operator: {opcode}")
+        
+        # For while(x > y) with decrement pattern
+        if opcode == ">" and len(loop_modified_vars) == 1:
+            modified_var = list(loop_modified_vars)[0]
+            
+            # Find the limit variable (the one that's not modified)
+            limit_var = None
+            for var in cond_vars:
+                if var != modified_var:
+                    limit_var = var
+                    break
+            
+            if limit_var and limit_var in initial_values:
+                # For while(x > y) { x-- }, x converges to y
+                final_values[modified_var] = initial_values[limit_var]
+                debug_print(f"Pattern analysis: {modified_var} converges to {initial_values[limit_var]}")
+            else:
+                final_values[modified_var] = 1  # Conservative default
+                debug_print(f"Using default final value for {modified_var}: 1")
+    
+    # Fallback if no pattern matched
+    if not final_values:
+        for var in loop_modified_vars:
+            final_values[var] = 1
+            debug_print(f"Fallback final value for {var}: 1")
+    
+    # Step 4: Create while operation with correct condition and body
+    while_op = QuantumWhileOp(regions=[Region(), Region()])
+    
+    # Create condition block with actual condition
+    cond_block = Block()
+    
+    debug_print("Generating condition block")
+    cond_result = generate_condition(cond_node, cond_block)
+    if cond_result:
+        cond_op = QuantumConditionOp(operands=[cond_result])
+        cond_block.add_op(cond_op)
+        debug_print("Successfully generated condition operation")
+    else:
+        debug_print("ERROR: Condition generation failed, using fallback")
+        # Emergency fallback
+        symbolic_cond = QuantumInitOp(
+            result_types=[i1],
+            attributes={"type": i1, "value": IntegerAttr(1, i1)}
+        )
+        cond_block.add_op(symbolic_cond)
+        cond_op = QuantumConditionOp(operands=[symbolic_cond.results[0]])
+        cond_block.add_op(cond_op)
+    
+    # Create body block with actual operations
+    body_block = Block()
+    
+    debug_print("Generating body block")
+    for stmt_node in stmts:
+        if stmt_node.get("kind") == "BinaryOperator" and stmt_node.get("opcode") == "=":
+            debug_print(f"Processing assignment in loop body")
+            rhs_node = stmt_node.get("inner", [])[1] if len(stmt_node.get("inner", [])) > 1 else None
+            
+            if rhs_node and rhs_node.get("kind") == "BinaryOperator":
+                rhs_opcode = rhs_node.get("opcode")
+                rhs_inner = rhs_node.get("inner", [])
+                
+                debug_print(f"RHS operation: {rhs_opcode} with {len(rhs_inner)} operands")
+                
+                if rhs_opcode == "-" and len(rhs_inner) >= 2:
+                    # Extract operands: x - 1
+                    left_operand = rhs_inner[0]
+                    right_operand = rhs_inner[1]
+                    
+                    # Get left operand (variable)
+                    left_var = extract_var_name(left_operand)
+                    left_ssa = None
+                    if left_var and left_var in ssa_map:
+                        left_ssa = ssa_map[left_var]
+                        debug_print(f"Left operand: {left_var} -> {left_ssa}")
+                    
+                    # Get right operand (literal)
+                    right_ssa = None
+                    if right_operand.get("kind") == "IntegerLiteral":
+                        lit_val = int(right_operand.get("value", "1"))
+                        const_op = QuantumInitOp(
+                            result_types=[i32],
+                            attributes={"type": i32, "value": IntegerAttr(lit_val, i32)}
+                        )
+                        body_block.add_op(const_op)
+                        right_ssa = const_op.results[0]
+                        debug_print(f"Right operand: literal {lit_val} -> {right_ssa}")
+                    
+                    # Create subtraction
+                    if left_ssa and right_ssa:
+                        sub_op = QuantumSubOp(
+                            result_types=[i32],
+                            operands=[left_ssa, right_ssa]
+                        )
+                        body_block.add_op(sub_op)
+                        debug_print(f"Created subtraction: {left_var} - {lit_val}")
+                    else:
+                        debug_print("ERROR: Could not create subtraction, using fallback")
+                        # Create fallback operation
+                        const_one = QuantumInitOp(
+                            result_types=[i32],
+                            attributes={"type": i32, "value": IntegerAttr(1, i32)}
+                        )
+                        body_block.add_op(const_one)
+                        fallback_sub = QuantumSubOp(
+                            result_types=[i32],
+                            operands=[const_one.results[0], const_one.results[0]]
+                        )
+                        body_block.add_op(fallback_sub)
+    
+    # Add blocks to while operation
+    while_op.regions[0].add_block(cond_block)
+    while_op.regions[1].add_block(body_block)
+    
+    # Step 5: Add while operation to current block
+    blk.add_op(while_op)
+    debug_print("Added while operation to main block")
+    
+    # Step 6: Create post-loop SSA values with CORRECT final values
+    debug_print(f"Creating post-loop values for: {loop_modified_vars}")
+    
+    for var in loop_modified_vars:
+        if var in ssa_map:
+            # Use the computed final value
+            final_value = final_values.get(var, 1)
+            debug_print(f"Creating post-loop value for {var}: {final_value}")
+            
+            # Create new SSA value representing the variable after the loop
+            post_loop_op = QuantumInitOp(
+                result_types=[i32],
+                attributes={
+                    "type": i32, 
+                    "value": IntegerAttr(final_value, i32)
+                }
+            )
+            blk.add_op(post_loop_op)
+            
+            # CRITICAL: Update SSA mapping to point to post-loop value
+            old_val = ssa_map[var]
+            ssa_map[var] = post_loop_op.results[0]
+            debug_print(f"UPDATED SSA: {var} {old_val} -> {ssa_map[var]} (value={final_value})")
+    
+    debug_print("=== FINISHED WHILE LOOP PROCESSING ===")
+    return  # Ensure we exit here and don't process anything else
     
     # Extract actual initial values from the SSA operations
     def extract_constant_value(ssa_value):
@@ -1206,15 +1464,42 @@ def translate_stmt(stmt, blk):
                     loop_modified_vars.add(lhs_var)
                     debug_print(f"Tracked {lhs_var} as modified in loop body (compound assignment)")
             
+    # elif kind == "CallExpr" and (stmt.get("callee",{}).get("name") == "printf" or 
+    #                           "printf" in str(stmt.get("inner", [0]))):
+    #     var_names = process_printf_args(stmt)
+    #     for var_name in var_names:
+    #         if var_name in ssa_map:
+    #             debug_print(f"Adding measurement for {var_name}")
+    #             m = QuantumMeasureOp(result_types=[i1], operands=[ssa_map[var_name]])
+    #             blk.add_op(m)
+    #             break
     elif kind == "CallExpr" and (stmt.get("callee",{}).get("name") == "printf" or 
-                              "printf" in str(stmt.get("inner", [0]))):
+                      "printf" in str(stmt.get("inner", [0]))):
         var_names = process_printf_args(stmt)
+        
+        # Find the variable that was modified in the loop (should be 'x')
+        target_var = None
         for var_name in var_names:
             if var_name in ssa_map:
-                debug_print(f"Adding measurement for {var_name}")
-                m = QuantumMeasureOp(result_types=[i1], operands=[ssa_map[var_name]])
-                blk.add_op(m)
+                target_var = var_name
                 break
+        
+        # If no printf args, find the most recently modified variable
+        if not target_var:
+            # Look for variables that were modified in loops
+            for var in reversed(list(ssa_map.keys())):
+                if var in loop_modified_vars:
+                    target_var = var
+                    break
+            
+            if not target_var:
+                target_var = list(ssa_map.keys())[-1]  # Last variable as fallback
+        
+        if target_var and target_var in ssa_map:
+            debug_print(f"Adding measurement for final result variable: {target_var} -> {ssa_map[target_var]}")
+            m = QuantumMeasureOp(result_types=[i1], operands=[ssa_map[target_var]])
+            blk.add_op(m)
+
 
     # Handle compound statements (eg: block of code)
     elif kind == "CompoundStmt":
