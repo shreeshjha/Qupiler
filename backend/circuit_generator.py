@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Complete Universal Qiskit Circuit Generator from Optimized MLIR
+Fixed Circuit Generator with External Expected Result
 
-This script generates quantum circuits from optimized MLIR and executes them automatically.
-Shows circuit visualization, quantum operations, expected vs quantum results.
+This script generates quantum circuits from optimized MLIR and reads the
+expected result from an external file (expected_res.txt) instead of calculating it.
 
-Usage: python circuit_generator.py <optimized.mlir> <output.py>
+Usage: python circuit_generator_fixed.py <optimized.mlir> <output.py> [expected_res.txt]
 """
 
 import re
 import sys
+import os
 from typing import Dict, List, Tuple, Optional, Set, Any
 from dataclasses import dataclass
 import json
@@ -34,7 +35,7 @@ class QuantumOperation:
         if self.attributes is None:
             self.attributes = {}
 
-class UniversalQiskitGenerator:
+class FixedQiskitGenerator:
     def __init__(self):
         self.registers: Dict[str, QubitRegister] = {}
         self.operations: List[QuantumOperation] = []
@@ -43,17 +44,36 @@ class UniversalQiskitGenerator:
         self.initial_values: Dict[str, int] = {}
         self.expected_result: Optional[int] = None
         
+    def load_expected_result(self, expected_file: str = "expected_res.txt") -> int:
+        """Load expected result from external file"""
+        try:
+            if os.path.exists(expected_file):
+                with open(expected_file, 'r') as f:
+                    expected = int(f.read().strip())
+                print(f"📊 Loaded expected result from {expected_file}: {expected}")
+                return expected
+            else:
+                print(f"⚠️  Expected result file {expected_file} not found, using default: 0")
+                return 0
+        except Exception as e:
+            print(f"❌ Error loading expected result: {e}")
+            return 0
+    
     def parse_optimized_mlir(self, content: str) -> None:
         """Parse any optimized MLIR content dynamically"""
         lines = content.split('\n')
         
-        print(f"🔍 Parsing optimized MLIR with {len(lines)} lines")
-        print("📄 MLIR Content Preview:")
-        for i, line in enumerate(lines[:20]):  # Show first 20 lines
-            print(f"   {i+1:2}: {line}")
-        if len(lines) > 20:
-            print(f"   ... ({len(lines) - 20} more lines)")
-        print()
+        # Try to extract expected result from comment first
+        expected_from_comment = None
+        for line in lines:
+            if line.startswith("// Expected classical result:"):
+                try:
+                    expected_from_comment = int(line.split(":")[-1].strip())
+                    print(f"📊 Found expected result from MLIR comment: {expected_from_comment}")
+                    self.expected_result = expected_from_comment
+                except:
+                    pass
+                break
         
         # Extract applied optimizations from header
         for line in lines:
@@ -64,7 +84,6 @@ class UniversalQiskitGenerator:
         
         parsed_lines = 0
         for i, line in enumerate(lines):
-            original_line = line
             line = line.strip()
             
             # Skip empty and comment lines
@@ -103,8 +122,6 @@ class UniversalQiskitGenerator:
             print(f"🔬 Operations found:")
             for i, op in enumerate(self.operations):
                 print(f"   {i+1}. {op.op_type}: {op.operands}")
-        else:
-            print("❌ No operations found! Check MLIR format.")
         print()
     
     def _parse_line(self, line: str) -> bool:
@@ -185,9 +202,32 @@ class UniversalQiskitGenerator:
         
         # Parse basic gates: q.cx %q0[0], %q1[0]
         gate_match = re.search(r'q\.(\w+)\s+((?:%\w+(?:\[\d+\])?(?:,\s*)?)+)(?:\s*//\s*(.+))?', line)
-        if gate_match and not gate_match.group(1).endswith('_circuit') and gate_match.group(1) != 'measure':  # Avoid double-matching
+        if gate_match and not gate_match.group(1).endswith('_circuit') and gate_match.group(1) != 'measure':
             gate_type, operands_str, annotation = gate_match.groups()
+            
+            # Skip comment pseudo-operations
+            if gate_type == 'comment':
+                return True
+                
             operands = [op.strip() for op in operands_str.split(',')]
+            
+            # Extract all register names from operands to ensure they're tracked
+            for operand in operands:
+                if '[' in operand:
+                    reg_name = operand.split('[')[0]
+                else:
+                    reg_name = operand
+                
+                # Ensure this register exists in our tracking
+                if reg_name.startswith('%') and reg_name not in self.registers:
+                    # Auto-create register if it doesn't exist (from decomposed operations)
+                    print(f"   🔍 Auto-creating register {reg_name} found in gate operation")
+                    qiskit_name = f"q{len(self.registers)}"
+                    self.registers[reg_name] = QubitRegister(
+                        name=reg_name,
+                        size=4,  # Default to 4-bit registers
+                        qiskit_name=qiskit_name
+                    )
             
             self.operations.append(QuantumOperation(
                 op_type=gate_type,
@@ -201,172 +241,149 @@ class UniversalQiskitGenerator:
         # If we get here, no pattern matched
         return False
     
-    def calculate_expected_result(self) -> int:
-        """Calculate expected classical result by simulating MLIR operations"""
-        print("\n🧮 Calculating expected result from operations...")
+    def _detect_operation_from_gates(self):
+        """
+        Detect the original C operation by analyzing the quantum gate pattern
+        """
+        # Count different gate types
+        gate_counts = {}
+        total_gates = 0
         
-        if not self.operations:
-            print("❌ No operations found - cannot calculate expected result")
-            self.expected_result = 0
-            return 0
+        for op in self.operations:
+            if op.op_type in ['x', 'cx', 'ccx', 'measure']:
+                gate_counts[op.op_type] = gate_counts.get(op.op_type, 0) + 1
+                if op.op_type != 'measure':
+                    total_gates += 1
         
-        # Initialize variables
-        variables = {}
-        for reg_name, reg_info in self.registers.items():
-            if reg_info.initial_value is not None:
-                variables[reg_name] = reg_info.initial_value
+        print(f"🔧 Gate analysis: {gate_counts}, total: {total_gates}")
         
-        print(f"Initial values: {variables}")
+        # Heuristics based on quantum gate patterns:
+        ccx_count = gate_counts.get('ccx', 0)
+        cx_count = gate_counts.get('cx', 0)
+        x_count = gate_counts.get('x', 0)
         
-        if not variables:
-            print("❌ No initial values found")
-            self.expected_result = 0
-            return 0
+        # Division: Complex pattern with many CCX gates (20+ gates)
+        if ccx_count >= 15 and total_gates >= 70:
+            return "div"
         
-        # For gate-level MLIR (like your and_test), we need to simulate the effect of CCX gates
-        # Since we have q0=5 (101), q1=4 (100), and CCX gates doing bitwise AND
-        # REMOVE the hardcoded AND logic and replace with:
-        if '%q0' in variables and '%q1' in variables:
-            q0_val = variables['%q0']
-            q1_val = variables['%q1']
+        # Modulo: Medium complexity (10-20 CCX gates)
+        elif ccx_count >= 8 and ccx_count < 15:
+            return "mod"
+        
+        # Multiplication: Medium complexity with specific pattern
+        elif ccx_count >= 4 and ccx_count < 12 and total_gates >= 20:
+            return "mul"
+        
+        # Bitwise AND: Simple CCX pattern (2-4 CCX gates)
+        elif ccx_count >= 2 and ccx_count <= 4 and cx_count <= 2:
+            return "and"
+        
+        # Bitwise OR: More CX than CCX gates
+        elif cx_count > ccx_count and ccx_count >= 1:
+            return "or"
+        
+        # XOR: Mainly CX gates, few CCX
+        elif cx_count >= 4 and ccx_count <= 2:
+            return "xor"
+        
+        # NOT: Many X gates with CX gates
+        elif x_count >= 4 and cx_count >= 4:
+            return "not"
+        
+        # Addition: Balanced CX and CCX
+        elif cx_count >= 4 and ccx_count >= 2 and ccx_count <= 6:
+            return "add"
+        
+        # Subtraction: Similar to addition but different pattern
+        elif cx_count >= 2 and ccx_count >= 1 and total_gates <= 15:
+            return "sub"
+        
+        # Negation: Few gates, mainly X
+        elif x_count >= 2 and total_gates <= 10:
+            return "neg"
+        
+        # Logical operations (&&, ||): Usually result in 0 or 1
+        elif total_gates <= 20 and ccx_count <= 6:
+            # Check if this might be logical vs bitwise
+            return "logical_and"  # Will be handled specially
+        
+        # Default fallback
+        else:
+            print(f"⚠️ Unknown pattern: CCX={ccx_count}, CX={cx_count}, X={x_count}")
+            return "unknown"
+
+    def _calculate_binary_operation(self, operation, a, b):
+        """Calculate result for binary operations"""
+        print(f"📊 Binary operation: {operation}({a}, {b})")
+        
+        if operation == "div":
+            result = a // b if b != 0 else 0
+            print(f"   Division: {a} ÷ {b} = {result}")
             
-            # Check what operation this actually is based on the original MLIR
-            ccx_gates = [op for op in self.operations if op.op_type == 'ccx']
-            if len(ccx_gates) >= 3:
-                # Detect operation type from MLIR filename or operation pattern
-                # For OR: result = q0_val | q1_val
-                # For AND: result = q0_val & q1_val
-                
-                # GENERIC: Let the circuit operations below handle this instead
-                # Don't hardcode any operation here
-                pass
-        
-                
-        # Simulate other operations
-        for i, op in enumerate(self.operations):
-            print(f"Step {i+1}: {op.op_type} - {op.description}")
+        elif operation == "mod":
+            result = a % b if b != 0 else 0
+            print(f"   Modulo: {a} % {b} = {result}")
             
-            if op.op_type.endswith("_circuit") and len(op.operands) >= 2:
-                circuit_type = op.op_type.replace("_circuit", "")
-                
-                if len(op.operands) >= 3:  # Binary operations
-                    a_reg, b_reg, result_reg = op.operands[:3]
-                    print(f"   Binary operation: {a_reg} {circuit_type} {b_reg} -> {result_reg}")
-                    
-                    if a_reg in variables and b_reg in variables:
-                        a_val, b_val = variables[a_reg], variables[b_reg]
-                        print(f"   Values: {a_reg}={a_val}, {b_reg}={b_val}")
-                        
-                        # Calculate result based on operation
-                        if circuit_type == "add":
-                            result = a_val + b_val
-                        elif circuit_type == "sub":
-                            result = a_val - b_val
-                        elif circuit_type == "mul":
-                            result = a_val * b_val
-                        elif circuit_type == "div":
-                            result = a_val // b_val if b_val != 0 else 0
-                        elif circuit_type == "mod":
-                            result = a_val % b_val if b_val != 0 else 0
-                        elif circuit_type == "and":
-                            result = a_val & b_val  # Bitwise AND
-                            print(f"   🔍 Bitwise AND: {a_val} & {b_val} = {result}")
-                            print(f"   🔍 Binary: {bin(a_val)} & {bin(b_val)} = {bin(result)}")
-                        elif circuit_type == "or":
-                            result = a_val | b_val  # Bitwise OR
-                            print(f"   🔍 Bitwise OR: {a_val} | {b_val} = {result}")
-                            print(f"   🔍 Binary: {bin(a_val)} | {bin(b_val)} = {bin(result)}")
-                        elif circuit_type == "xor":
-                            result = a_val ^ b_val
-                        elif circuit_type == "post_inc":
-                            variables[op.operands[1]] = a_val  # original
-                            variables[op.operands[2]] = a_val + 1  # incremented
-                            print(f"   🔍 Post-increment: orig={a_val}, inc={a_val + 1}")
-                            continue
-                        elif circuit_type == "post_dec":
-                            variables[op.operands[1]] = a_val  # original
-                            variables[op.operands[2]] = a_val - 1  # decremented
-                            print(f"   🔍 Post-decrement: orig={a_val}, dec={a_val - 1}")
-                            continue
-                        elif circuit_type == "gt":
-                            result = 1 if a_val > b_val else 0
-                            print(f"   🔍 Greater than: {a_val} > {b_val} = {result}")
-                        elif circuit_type == "lt":
-                            result = 1 if a_val < b_val else 0
-                            print(f"   🔍 Less than: {a_val} < {b_val} = {result}")
-                        elif circuit_type == "eq":
-                            result = 1 if a_val == b_val else 0
-                            print(f"   🔍 Equal: {a_val} == {b_val} = {result}")
-                        elif circuit_type == "ne":
-                            result = 1 if a_val != b_val else 0
-                            print(f"   🔍 Not equal: {a_val} != {b_val} = {result}")
-                        elif circuit_type == "ge":
-                            result = 1 if a_val >= b_val else 0
-                            print(f"   🔍 Greater or equal: {a_val} >= {b_val} = {result}")
-                        elif circuit_type == "le":
-                            result = 1 if a_val <= b_val else 0
-                            print(f"   🔍 Less or equal: {a_val} <= {b_val} = {result}")
-                        else:
-                            print(f"   ❓ Unknown operation: {circuit_type}")
-                            continue
-                        
-                        result = result & 0xF  # 4-bit mask
-                        variables[result_reg] = result
-                        print(f"   ✅ Result: {result_reg} = {result}")
-                    else:
-                        print(f"   ❌ Missing operands: {a_reg} in vars: {a_reg in variables}, {b_reg} in vars: {b_reg in variables}")
-                
-                elif len(op.operands) >= 2:  # Unary operations
-                    input_reg, result_reg = op.operands[:2]
-                    print(f"   Unary operation: {circuit_type} {input_reg} -> {result_reg}")
-                    
-                    if input_reg in variables:
-                        input_val = variables[input_reg]
-                        print(f"   Value: {input_reg}={input_val}")
-                        
-                        if circuit_type == "not":
-                            result = ~input_val & 0xF  # Bitwise NOT
-                            print(f"   🔍 Bitwise NOT: ~{input_val} = {result}")
-                            print(f"   🔍 Binary: ~{bin(input_val)} = {bin(result)} (4-bit)")
-                        elif circuit_type == "neg":
-                            result = (-input_val) & 0xF  # Negation
-                            print(f"   🔍 Negation: -{input_val} = {result}")
-                        else:
-                            print(f"   ❓ Unknown unary operation: {circuit_type}")
-                            continue
-                        
-                        variables[result_reg] = result
-                        print(f"   ✅ Result: {result_reg} = {result}")
-                    else:
-                        print(f"   ❌ Missing input: {input_reg} not in variables")
+        elif operation == "mul":
+            result = (a * b) & 0xF  # 4-bit mask
+            print(f"   Multiplication: {a} × {b} = {result}")
+            
+        elif operation == "add":
+            result = (a + b) & 0xF
+            print(f"   Addition: {a} + {b} = {result}")
+            
+        elif operation == "sub":
+            result = (a - b) & 0xF
+            print(f"   Subtraction: {a} - {b} = {result}")
+            
+        elif operation == "and":
+            result = (a & b) & 0xF  # Bitwise AND
+            print(f"   Bitwise AND: {a} & {b} = {result}")
+            
+        elif operation == "or":
+            result = (a | b) & 0xF  # Bitwise OR
+            print(f"   Bitwise OR: {a} | {b} = {result}")
+            
+        elif operation == "xor":
+            result = (a ^ b) & 0xF
+            print(f"   XOR: {a} ^ {b} = {result}")
+            
+        elif operation == "logical_and":
+            result = 1 if (a != 0 and b != 0) else 0  # Logical AND (&&)
+            print(f"   Logical AND: {a} && {b} = {result}")
+            
+        elif operation == "logical_or":
+            result = 1 if (a != 0 or b != 0) else 0  # Logical OR (||)
+            print(f"   Logical OR: {a} || {b} = {result}")
+            
+        else:
+            print(f"   ❓ Unknown binary operation: {operation}")
+            result = a  # Fallback to first operand
         
-        # Find measurement result
-        final_result = 0
-        measured_register = None
+        return result
+
+    def _calculate_unary_operation(self, operation, a):
+        """Calculate result for unary operations"""
+        print(f"📊 Unary operation: {operation}({a})")
         
-        for op in reversed(self.operations):
-            if op.op_type == "measure" and op.operands[0] in variables:
-                measured_register = op.operands[0]
-                final_result = variables[measured_register]
-                print(f"🎯 Found measurement of {measured_register} = {final_result}")
-                break
+        if operation == "not":
+            result = (~a) & 0xF  # 4-bit bitwise NOT
+            print(f"   Bitwise NOT: ~{a} = {result}")
+            print(f"   Binary: ~{a:04b} = {result:04b}")
+            
+        elif operation == "neg":
+            result = (-a) & 0xF  # 4-bit negation
+            print(f"   Negation: -{a} = {result}")
+            
+        elif operation == "logical_not":
+            result = 1 if a == 0 else 0  # Logical NOT (!)
+            print(f"   Logical NOT: !{a} = {result}")
+            
+        else:
+            print(f"   ❓ Unknown unary operation: {operation}")
+            result = a  # Fallback to input
         
-        if not measured_register:
-            print(f"❌ No measurement found in operations")
-            # For gate-level MLIR, use the result register (%q2) which should contain the AND result
-            if '%q2' in variables:
-                measured_register = '%q2'
-                final_result = variables[measured_register]
-                print(f"🎯 Using result register {measured_register}: {final_result}")
-            elif variables:
-                measured_register = list(variables.keys())[-1]  # Use last variable
-                final_result = variables[measured_register]
-                print(f"🎯 Using last variable {measured_register}: {final_result}")
-        
-        print(f"📊 All final values: {variables}")
-        print(f"🎯 Expected result: {final_result}")
-        self.expected_result = final_result
-        return final_result
+        return result
     
     def _safe_get_register(self, reg_name: str) -> Optional[QubitRegister]:
         """Safely get a register"""
@@ -387,18 +404,15 @@ class UniversalQiskitGenerator:
             return reg_part, index
         return operand, None
     
-    def generate_qiskit_code(self) -> List[str]:
-        """Generate complete Qiskit Python code"""
-        
-        # Calculate expected result
-        expected = self.calculate_expected_result()
+    def generate_qiskit_code(self, expected_result: int) -> List[str]:
+        """Generate complete Qiskit Python code with external expected result"""
         
         lines = [
             "#!/usr/bin/env python3",
             "'''",
             "Generated Qiskit Circuit from Optimized MLIR",
             "",
-            f"Expected classical result: {expected}",
+            f"Expected classical result: {expected_result}",
             "'''",
             "",
             "from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister",
@@ -649,7 +663,7 @@ class UniversalQiskitGenerator:
         lines.extend([
             "    return qc, operations_log",
             "",
-            f"def run_simulation(qc, operations_log, expected_result={expected}):",
+            f"def run_simulation(qc, operations_log, expected_result={expected_result}):",
             "    '''Run quantum simulation and analyze results'''",
             "    print('🚀 Running quantum simulation...')",
             "    print(f'Circuit: {qc.num_qubits} qubits, {qc.depth()} depth, {len(qc.data)} gates')",
@@ -748,13 +762,13 @@ class UniversalQiskitGenerator:
             "        visualize_circuit(qc)",
             "        ",
             "        # Run simulation",
-            f"        quantum_result, accuracy, all_counts = run_simulation(qc, operations_log, {expected})",
+            f"        quantum_result, accuracy, all_counts = run_simulation(qc, operations_log, {expected_result})",
             "        ",
             "        # Final summary",
             "        print('\\n' + '=' * 50)",
             "        print('🎊 Execution Complete!')",
             "        print(f'   Quantum Result: {quantum_result}')",
-            f"        print(f'   Expected Result: {expected}')",
+            f"        print(f'   Expected Result: {expected_result}')",
             "        print(f'   Accuracy: {accuracy}')",
             "        ",
             "        return qc, operations_log, quantum_result",
@@ -783,24 +797,25 @@ class UniversalQiskitGenerator:
         
         return lines
     
-    def generate_complete_qiskit(self, mlir_content: str) -> str:
-        """Generate complete Qiskit code from MLIR"""
+    def generate_complete_qiskit(self, mlir_content: str, expected_result: int) -> str:
+        """Generate complete Qiskit code from MLIR with external expected result"""
         self.parse_optimized_mlir(mlir_content)
-        qiskit_lines = self.generate_qiskit_code()
+        qiskit_lines = self.generate_qiskit_code(expected_result)
         return '\n'.join(qiskit_lines)
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python circuit_generator.py <optimized.mlir> <output.py>")
-        print("\nUniversal generator that focuses on:")
-        print("  ✅ Quantum circuit generation")
-        print("  ✅ Expected vs quantum results") 
-        print("  ✅ Circuit visualization")
-        print("  ✅ Automatic execution")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: python circuit_generator_fixed.py <optimized.mlir> <output.py> [expected_res.txt]")
+        print("\nFixed generator that:")
+        print("  ✅ Reads expected result from external file")
+        print("  ✅ Generates quantum circuits correctly")
+        print("  ✅ Shows accurate expected vs quantum results") 
+        print("  ✅ Circuit visualization and execution")
         sys.exit(1)
     
     input_file = sys.argv[1]
     output_file = sys.argv[2]
+    expected_file = sys.argv[3] if len(sys.argv) == 4 else "expected_res.txt"
     
     # Read MLIR
     try:
@@ -813,8 +828,13 @@ def main():
     print(f"📄 Reading MLIR from: {input_file}")
     
     # Generate Qiskit code
-    generator = UniversalQiskitGenerator()
-    qiskit_code = generator.generate_complete_qiskit(mlir_content)
+    generator = FixedQiskitGenerator()
+    
+    # Load expected result from external file
+    expected_result = generator.load_expected_result(expected_file)
+    
+    # Generate circuit with the loaded expected result
+    qiskit_code = generator.generate_complete_qiskit(mlir_content, expected_result)
     
     # Write output
     try:
@@ -826,7 +846,7 @@ def main():
         sys.exit(1)
     
     print(f"📊 {len(generator.registers)} registers, {len(generator.operations)} operations")
-    print(f"🧮 Expected result: {generator.expected_result}")
+    print(f"🧮 Expected result (from {expected_file}): {expected_result}")
     print(f"🎯 Run with: python {output_file}")
 
 if __name__ == "__main__":

@@ -19,7 +19,6 @@ EXP_DIR="$(dirname "$C_PATH")"
 
 # 3) cd into experiments so all commands run there
 pushd "$EXP_DIR" > /dev/null
-
 echo "🔨 Building pipeline for $BASE.c in $(pwd)"
 echo
 
@@ -32,6 +31,19 @@ clang -Xclang -ast-dump=json -fsyntax-only \
 echo "2) json_to_mlir"
 python3 ../backend/ast_json_to_mlir.py \
       "$BASE.json" "$BASE.mlir"
+
+# NEW STEP 2.5: Extract expected result from high-level MLIR
+echo "2.5) extract_expected_result"
+python3 ../backend/extract_expected_result.py \
+      "$BASE.mlir" expected_res.txt
+
+# Show the extracted expected result
+if [[ -f expected_res.txt ]]; then
+    EXPECTED_RESULT=$(cat expected_res.txt)
+    echo "    📊 Expected result extracted: $EXPECTED_RESULT"
+else
+    echo "    ⚠️  Warning: expected_res.txt not created"
+fi
 
 # Step 3: MLIR → optimized MLIR
 echo "3) mlir optimizer (--preserve-all)"
@@ -49,21 +61,32 @@ echo "5) gate_optimizer3"
 python3 ../backend/gate_optimizer2.py \
       "$BASE"_gate.mlir "$BASE"_gate_opt.mlir
 
-# Step 6: gate-opt MLIR → circuit.py
-echo "6) circuit_generator2"
-python3 ../backend/circuit_generator2.py \
-      "$BASE"_gate_opt.mlir circuit.py
+# MODIFIED Step 6: gate-opt MLIR → circuit.py (now uses expected_res.txt)
+echo "6) circuit_generator (with correct expected result)"
+python3 ../backend/circuit_generator.py \
+      "$BASE"_gate_opt.mlir circuit.py expected_res.txt
 
 echo
 echo "✅ Done! Generated:"
-ls -1 \
-  "$BASE".{json,mlir}_opt*.mlir 2>/dev/null || true
 echo " • $BASE.json"
 echo " • $BASE.mlir"
 echo " • $BASE_opt.mlir"
 echo " • $BASE_gate.mlir"
 echo " • $BASE_gate_opt.mlir"
+echo " • expected_res.txt (expected result: $(cat expected_res.txt 2>/dev/null || echo 'N/A'))"
 echo " • circuit.py"
 
-popd > /dev/null
+echo
+echo "🎯 Next steps:"
+echo " • Run the circuit: python3 circuit.py"
+echo " • Verify quantum result matches expected result: $(cat expected_res.txt 2>/dev/null || echo 'N/A')"
 
+# Optional: Clean up expected_res.txt after pipeline
+read -p "🗑️  Remove expected_res.txt? (y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    rm -f expected_res.txt
+    echo "   🗑️  Removed expected_res.txt"
+fi
+
+popd > /dev/null
