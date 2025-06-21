@@ -509,9 +509,50 @@ class WorkingQuantumMLIROptimizer:
         self.operations = new_operations
         return eliminated_count
     
+    # def optimize(self, mlir_content: str) -> str:
+    #     """Apply all optimizations to MLIR content"""
+    #     self.original_mlir_content = mlir_content
+    #     lines = mlir_content.strip().split('\n')
+        
+    #     # Parse operations
+    #     for i, line in enumerate(lines):
+    #         op = self.parse_mlir_line(line, i)
+    #         if op:
+    #             self.operations.append(op)
+        
+    #     self.stats.operations_before = len(self.operations)
+    #     self.debug_print(f"Parsed {len(self.operations)} operations")
+        
+    #     # Analyze constants and usage
+    #     self.analyze_constants()
+    #     self.analyze_usage()
+        
+    #     # Apply optimizations in order
+    #     self.debug_print("=== Starting Optimization Pipeline ===")
+    #     self.debug_print(f"Preserve arithmetic: {self.preserve_arithmetic}")
+    #     self.debug_print(f"Preserve increments: {self.preserve_increments}")
+        
+    #     # Phase 1: Constant propagation (compute values through operations)
+    #     self.constant_propagation()
+        
+    #     # Phase 2: Selective constant folding (preserve certain operations)
+    #     self.stats.constant_folds = self.selective_constant_folding()
+        
+    #     # Phase 3: Conditional arithmetic simplification
+    #     self.stats.arithmetic_simplifications = self.arithmetic_simplification()
+        
+    #     # Phase 4: Expand copy operations to maintain SSA
+    #     self.expand_copy_operations()
+        
+    #     # Phase 5: Smart dead code elimination that respects preservation flags
+    #     self.stats.dead_code_eliminations = self.smart_dead_code_elimination()
+        
+    #     self.stats.operations_after = len(self.operations)
+        
+    #     # Reconstruct MLIR
+    #     return self.reconstruct_mlir()
     def optimize(self, mlir_content: str) -> str:
         """Apply all optimizations to MLIR content"""
-        self.original_mlir_content = mlir_content
         lines = mlir_content.strip().split('\n')
         
         # Parse operations
@@ -522,6 +563,10 @@ class WorkingQuantumMLIROptimizer:
         
         self.stats.operations_before = len(self.operations)
         self.debug_print(f"Parsed {len(self.operations)} operations")
+        
+        # CALCULATE EXPECTED RESULT HERE (before any optimizations)
+        expected_result = self.calculate_expected_result_from_high_level()
+        print(f"📊 Calculated expected result: {expected_result}")
         
         # Analyze constants and usage
         self.analyze_constants()
@@ -549,8 +594,14 @@ class WorkingQuantumMLIROptimizer:
         
         self.stats.operations_after = len(self.operations)
         
-        # Reconstruct MLIR
-        return self.reconstruct_mlir()
+        # Reconstruct MLIR WITH expected result embedded
+        optimized_mlir = self.reconstruct_mlir()
+        
+        # ADD expected result as comment in the output
+        result_lines = optimized_mlir.split('\n')
+        result_lines.insert(1, f"// Expected classical result: {expected_result}")
+        
+        return '\n'.join(result_lines)
     
     def reconstruct_mlir(self) -> str:
         """Reconstruct optimized MLIR from operations"""
@@ -661,6 +712,86 @@ class WorkingQuantumMLIROptimizer:
         ])
         
         return '\n'.join(result_lines)
+
+    def calculate_expected_result_from_high_level(self):
+        """Calculate expected result from high-level operations before decomposition"""
+        print("\n🧮 Calculating expected result from high-level MLIR...")
+        
+        # Extract initial values from quantum.init operations
+        variables = {}
+        for op in self.operations:
+            if op.op_name == "init" and "value" in op.attributes:
+                try:
+                    value_str = op.attributes["value"]
+                    value_match = re.search(r'(\d+)', value_str)
+                    if value_match:
+                        value = int(value_match.group(1))
+                        variables[op.results[0]] = value
+                        print(f"Found init: {op.results[0]} = {value}")
+                except ValueError:
+                    pass
+        
+        print(f"Initial variables: {variables}")
+        
+        if len(variables) < 2:
+            print("Not enough variables for calculation")
+            return 0
+        
+        # Process operations to find the final result
+        for op in self.operations:
+            if op.op_name in ["add", "sub", "mul", "div", "mod", "and", "or", "xor", "not"] and len(op.operands) >= 2:
+                
+                if len(op.operands) >= 2 and op.op_name in ["add", "sub", "mul", "div", "mod", "and", "or", "xor"]:
+                    # Binary operations
+                    operand1, operand2 = op.operands[:2]
+                    if operand1 in variables and operand2 in variables:
+                        a_val, b_val = variables[operand1], variables[operand2]
+                        print(f"Processing {op.op_name}: {a_val} {op.op_name} {b_val}")
+                        
+                        if op.op_name == "add":
+                            result = (a_val + b_val) & 0xF
+                        elif op.op_name == "sub":
+                            result = (a_val - b_val) & 0xF
+                        elif op.op_name == "mul":
+                            result = (a_val * b_val) & 0xF
+                        elif op.op_name == "div":
+                            result = (a_val // b_val) & 0xF if b_val != 0 else 0
+                        elif op.op_name == "mod":
+                            result = (a_val % b_val) & 0xF if b_val != 0 else 0
+                        elif op.op_name == "and":
+                            result = (a_val & b_val) & 0xF
+                        elif op.op_name == "or":
+                            result = (a_val | b_val) & 0xF
+                        elif op.op_name == "xor":
+                            result = (a_val ^ b_val) & 0xF
+                        else:
+                            continue
+                        
+                        variables[op.results[0]] = result
+                        print(f"Result: {op.results[0]} = {result}")
+                        return result
+                
+                elif len(op.operands) >= 1 and op.op_name in ["not", "neg"]:
+                    # Unary operations
+                    operand = op.operands[0]
+                    if operand in variables:
+                        a_val = variables[operand]
+                        print(f"Processing {op.op_name}: {op.op_name}({a_val})")
+                        
+                        if op.op_name == "not":
+                            result = (~a_val) & 0xF
+                        elif op.op_name == "neg":
+                            result = (-a_val) & 0xF
+                        else:
+                            continue
+                        
+                        variables[op.results[0]] = result
+                        print(f"Result: {op.results[0]} = {result}")
+                        return result
+        
+        print("No operations found to calculate result")
+        return 0
+
     
     def print_stats(self):
         """Print optimization statistics"""

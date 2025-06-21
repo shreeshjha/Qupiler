@@ -46,7 +46,7 @@ python3 ../backend/gate_converter.py \
 
 # Step 5: gate MLIR → optimized gate MLIR
 echo "5) gate_optimizer3"
-python3 ../backend/gate_optimizer3.py \
+python3 ../backend/gate_optimizer2.py \
       "$BASE"_gate.mlir "$BASE"_gate_opt.mlir
 
 # Step 6: gate-opt MLIR → circuit.py
