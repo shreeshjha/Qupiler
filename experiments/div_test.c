@@ -1,13 +1,13 @@
 #include <stdio.h>
 
 void quantum_circuit() {
-    int a = 6;
-    int b = 2;
-    int result = a / b;
-    printf("%d\n", result);
+  int a = 5;
+  int b = 5;
+  int result = a / b;
+  printf("%d\n", result);
 }
 
 int main() {
-    quantum_circuit();
-    return 0;
+  quantum_circuit();
+  return 0;
 }
