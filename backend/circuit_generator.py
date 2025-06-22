@@ -15,6 +15,20 @@ from typing import Dict, List, Tuple, Optional, Set, Any
 from dataclasses import dataclass
 import json
 
+
+def convert_4bit_to_signed(unsigned_value):
+    """
+    Convert 4-bit unsigned quantum result to signed interpretation
+    
+    4-bit signed range: -8 to +7
+    - Values 0-7: remain positive (0 to +7)
+    - Values 8-15: convert to negative (-8 to -1)
+    """
+    if unsigned_value >= 8:
+        return unsigned_value - 16  # Convert to negative
+    else:
+        return unsigned_value       # Already positive
+
 @dataclass
 class QubitRegister:
     name: str
@@ -58,6 +72,13 @@ class FixedQiskitGenerator:
         except Exception as e:
             print(f"❌ Error loading expected result: {e}")
             return 0
+        
+    def convert_4bit_to_signed(unsigned_value):
+        """Convert 4-bit unsigned to signed interpretation"""
+        if unsigned_value >= 8:
+            return unsigned_value - 16
+        else:
+            return unsigned_value
     
     def parse_optimized_mlir(self, content: str) -> None:
         """Parse any optimized MLIR content dynamically"""
@@ -420,6 +441,13 @@ class FixedQiskitGenerator:
             "from qiskit.visualization import plot_histogram",
             "import matplotlib.pyplot as plt",
             "",
+            "def convert_4bit_to_signed(unsigned_value):",
+            "    '''Convert 4-bit unsigned to signed interpretation'''",
+            "    if unsigned_value >= 8:",
+            "        return unsigned_value - 16",
+            "    else:",
+            "        return unsigned_value",
+            "",
             "def initialize_register(qc, qreg, value, num_bits):",
             "    '''Initialize quantum register to classical value'''",
             "    bin_val = format(value, f'0{num_bits}b')[::-1]  # LSB first",
@@ -691,16 +719,18 @@ class FixedQiskitGenerator:
             "        print(f'  {bitstring} (decimal: {decimal:2d}) -> {count:4d} shots ({percentage:5.1f}%)')",
             "    ",
             "    most_frequent_bits, most_frequent_count = sorted_results[0]",
-            "    quantum_result = int(most_frequent_bits, 2)",
+            "    quantum_result_unsigned = int(most_frequent_bits, 2)",
+            "    quantum_result_signed = convert_4bit_to_signed(quantum_result_unsigned)",
+            "    print(f'🎯 Quantum Result (unsigned): {quantum_result_unsigned}')",
+            "    print(f'🎯 Quantum Result (signed): {quantum_result_signed}')",
             "    ",
-            "    print(f'\\n🎯 Quantum Result: {quantum_result} (binary: {most_frequent_bits})')",
             "    print(f'🧮 Expected Result: {expected_result}')",
             "    ",
-            "    if quantum_result == expected_result:",
+            "    if quantum_result_unsigned == expected_result:",
             "        print('   ✅ PERFECT MATCH!')",
             "        accuracy = 'PERFECT'",
             "    else:",
-            "        difference = abs(quantum_result - expected_result)",
+            "        difference = abs(quantum_result_unsigned - expected_result)",
             "        print(f'   ⚠️  Difference: {difference}')",
             "        ",
             "        # Check if expected appears in results",
@@ -712,7 +742,7 @@ class FixedQiskitGenerator:
             "        ",
             "        accuracy = f'DIFF_{difference}'",
             "    ",
-            "    return quantum_result, accuracy, counts",
+            "    return quantum_result_unsigned, accuracy, counts",
             "",
             "def visualize_circuit(qc):",
             "    '''Show circuit diagram'''",
