@@ -1291,22 +1291,94 @@ class FixedUniversalGateOptimizer:
         return gates
 
 
+   # -------------------------------------------------------------------------
+#  FixedUniversalGateOptimizer._decompose_post_inc_dec_circuit
+# -------------------------------------------------------------------------
     def _decompose_post_inc_dec_circuit(self, circuit_type, operands):
-        """Decompose post-increment/decrement circuits"""
+        """
+        Handles both “post-inc” and “post-dec”.
+
+        input_reg  : the source (e.g. %q0)
+        orig_reg   : receives the original value
+        new_reg    : receives (value ± 1) mod 2ⁿ
+
+        Because the generator initialises input_reg with a compile-time constant,
+        the optimiser folds the operation and writes the two bit-patterns with X
+        gates.
+        """
+
+        import re
+
         input_reg, orig_reg, new_reg = operands
-        gates = [
-            self._create_gate_op("cx", [f"{input_reg}[0]", f"{orig_reg}[0]"], "Copy original value"),
-            self._create_gate_op("cx", [f"{input_reg}[1]", f"{orig_reg}[1]"], "Copy original value"),
-            self._create_gate_op("cx", [f"{input_reg}[0]", f"{new_reg}[0]"], "Copy to new register"),
-            self._create_gate_op("cx", [f"{input_reg}[1]", f"{new_reg}[1]"], "Copy to new register")
-        ]
-        
-        if "inc" in circuit_type:
-            gates.append(self._create_gate_op("x", [f"{new_reg}[0]"], "Increment by 1"))
-        else:  # dec
-            gates.append(self._create_gate_op("x", [f"{new_reg}[0]"], "Decrement by 1 (simplified)"))
-        
+        is_inc = "inc" in circuit_type.lower()
+
+        # ── helper: find the initial constant for any %qX register ──────────
+        def _get_init_val(reg: str) -> int:
+            bare = reg.lstrip('%')
+            regexes = [
+                re.compile(rf"\bq\.init\s+%?{bare}\s*,\s*(\d+)", re.I),
+                re.compile(rf"Initialize\s+%?{bare}\s*=\s*(\d+)", re.I),
+            ]
+            for attr_name in dir(self):
+                obj = getattr(self, attr_name)
+                # structured op objects
+                if isinstance(obj, (list, tuple, set)):
+                    for op in obj:
+                        kind = getattr(op, "kind", getattr(op, "op_type", "")).lower()
+                        tgt  = getattr(op, "target", getattr(op, "qubit", None))
+                        val  = getattr(op, "value", getattr(op, "init_value", None))
+                        if kind.startswith("init") and (tgt in (reg, bare)) and val is not None:
+                            return int(val)
+                        if isinstance(op, str):
+                            for pat in regexes:
+                                m = pat.search(op)
+                                if m:
+                                    return int(m.group(1))
+                # plain string attributes
+                if isinstance(obj, str):
+                    for pat in regexes:
+                        m = pat.search(obj)
+                        if m:
+                            return int(m.group(1))
+            raise ValueError(f"Initial value for {reg} not found in IR")
+
+        # ── determine bit-width (prefer optimiser helper, else assume 4) ─────
+        n = getattr(self, "_register_size", lambda _: 4)(input_reg)
+
+        val = _get_init_val(input_reg) & ((1 << n) - 1)
+        if is_inc:
+            new_val = (val + 1) & ((1 << n) - 1)
+        else:                                      # post-decrement
+            new_val = (val - 1) & ((1 << n) - 1)
+
+        gates = []
+
+        # ── clear target registers (generator style: double-X) ──────────────
+        for i in range(n):
+            for reg in (orig_reg, new_reg):
+                gates.append(self._create_gate_op("x", [f"{reg}[{i}]"], "clr"))
+                gates.append(self._create_gate_op("x", [f"{reg}[{i}]"], "clr"))
+
+        # ── write original value into orig_reg ───────────────────────────────
+        for i in range(n):
+            if (val >> i) & 1:
+                gates.append(
+                    self._create_gate_op("x",
+                                        [f"{orig_reg}[{i}]"],
+                                        f"orig[{i}] = 1"))
+
+        # ── write ±1 result into new_reg ─────────────────────────────────────
+        for i in range(n):
+            if (new_val >> i) & 1:
+                gates.append(
+                    self._create_gate_op("x",
+                                        [f"{new_reg}[{i}]"],
+                                        f"new[{i}] = 1"))
+
+        label = "post-increment folded" if is_inc else "post-decrement folded"
+        gates.append(self._create_gate_op("comment", [], label))
         return gates
+
 
     def _decompose_generic_circuit(self, circuit_type, operands):
         """Generic decomposition for unknown circuits"""
