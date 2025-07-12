@@ -1,18 +1,33 @@
 #!/usr/bin/env python3
 """
-Complete Universal Qiskit Circuit Generator from Optimized MLIR
+Fixed Circuit Generator with External Expected Result
 
-This script generates quantum circuits from optimized MLIR and executes them automatically.
-Shows circuit visualization, quantum operations, expected vs quantum results.
+This script generates quantum circuits from optimized MLIR and reads the
+expected result from an external file (expected_res.txt) instead of calculating it.
 
-Usage: python circuit_generator.py <optimized.mlir> <output.py>
+Usage: python circuit_generator_fixed.py <optimized.mlir> <output.py> [expected_res.txt]
 """
 
 import re
 import sys
+import os
 from typing import Dict, List, Tuple, Optional, Set, Any
 from dataclasses import dataclass
 import json
+
+
+def convert_4bit_to_signed(unsigned_value):
+    """
+    Convert 4-bit unsigned quantum result to signed interpretation
+    
+    4-bit signed range: -8 to +7
+    - Values 0-7: remain positive (0 to +7)
+    - Values 8-15: convert to negative (-8 to -1)
+    """
+    if unsigned_value >= 8:
+        return unsigned_value - 16  # Convert to negative
+    else:
+        return unsigned_value       # Already positive
 
 @dataclass
 class QubitRegister:
@@ -34,7 +49,7 @@ class QuantumOperation:
         if self.attributes is None:
             self.attributes = {}
 
-class UniversalQiskitGenerator:
+class FixedQiskitGenerator:
     def __init__(self):
         self.registers: Dict[str, QubitRegister] = {}
         self.operations: List[QuantumOperation] = []
@@ -43,27 +58,44 @@ class UniversalQiskitGenerator:
         self.initial_values: Dict[str, int] = {}
         self.expected_result: Optional[int] = None
         
+    def load_expected_result(self, expected_file: str = "expected_res.txt") -> int:
+        """Load expected result from external file"""
+        try:
+            if os.path.exists(expected_file):
+                with open(expected_file, 'r') as f:
+                    expected = int(f.read().strip())
+                print(f"📊 Loaded expected result from {expected_file}: {expected}")
+                return expected
+            else:
+                print(f"⚠️  Expected result file {expected_file} not found, using default: 0")
+                return 0
+        except Exception as e:
+            print(f"❌ Error loading expected result: {e}")
+            return 0
+        
+    def convert_4bit_to_signed(unsigned_value):
+        """Convert 4-bit unsigned to signed interpretation"""
+        if unsigned_value >= 8:
+            return unsigned_value - 16
+        else:
+            return unsigned_value
+    
     def parse_optimized_mlir(self, content: str) -> None:
         """Parse any optimized MLIR content dynamically"""
         lines = content.split('\n')
         
-        # print(f"🔍 Parsing optimized MLIR with {len(lines)} lines")
-        # print("📄 MLIR Content Preview:")
-        # for i, line in enumerate(lines[:20]):  # Show first 20 lines
-        #     print(f"   {i+1:2}: {line}")
-        # if len(lines) > 20:
-        #     print(f"   ... ({len(lines) - 20} more lines)")
-        # print()
+        # Try to extract expected result from comment first
         expected_from_comment = None
         for line in lines:
             if line.startswith("// Expected classical result:"):
                 try:
                     expected_from_comment = int(line.split(":")[-1].strip())
-                    print(f"📊 Found expected result from comment: {expected_from_comment}")
+                    print(f"📊 Found expected result from MLIR comment: {expected_from_comment}")
                     self.expected_result = expected_from_comment
                 except:
                     pass
                 break
+        
         # Extract applied optimizations from header
         for line in lines:
             if line.startswith("// Applied optimizations:"):
@@ -73,7 +105,6 @@ class UniversalQiskitGenerator:
         
         parsed_lines = 0
         for i, line in enumerate(lines):
-            original_line = line
             line = line.strip()
             
             # Skip empty and comment lines
@@ -112,8 +143,6 @@ class UniversalQiskitGenerator:
             print(f"🔬 Operations found:")
             for i, op in enumerate(self.operations):
                 print(f"   {i+1}. {op.op_type}: {op.operands}")
-        else:
-            print("❌ No operations found! Check MLIR format.")
         print()
     
     def _parse_line(self, line: str) -> bool:
@@ -193,7 +222,6 @@ class UniversalQiskitGenerator:
             return True
         
         # Parse basic gates: q.cx %q0[0], %q1[0]
-        # Parse basic gates: q.cx %q0[0], %q1[0]
         gate_match = re.search(r'q\.(\w+)\s+((?:%\w+(?:\[\d+\])?(?:,\s*)?)+)(?:\s*//\s*(.+))?', line)
         if gate_match and not gate_match.group(1).endswith('_circuit') and gate_match.group(1) != 'measure':
             gate_type, operands_str, annotation = gate_match.groups()
@@ -204,23 +232,42 @@ class UniversalQiskitGenerator:
                 
             operands = [op.strip() for op in operands_str.split(',')]
             
-            # Extract all register names from operands to ensure they're tracked
+            # FIXED: Extract all register names and determine required sizes
+            register_sizes = {}
             for operand in operands:
                 if '[' in operand:
-                    reg_name = operand.split('[')[0]
+                    reg_name, index_str = operand.split('[', 1)
+                    index = int(index_str.rstrip(']'))
+                    required_size = index + 1  # Index 4 requires size 5
+                    
+                    if reg_name not in register_sizes:
+                        register_sizes[reg_name] = required_size
+                    else:
+                        register_sizes[reg_name] = max(register_sizes[reg_name], required_size)
                 else:
                     reg_name = operand
-                
-                # Ensure this register exists in our tracking
-                if reg_name.startswith('%') and reg_name not in self.registers:
-                    # Auto-create register if it doesn't exist (from decomposed operations)
-                    print(f"   🔍 Auto-creating register {reg_name} found in gate operation")
-                    qiskit_name = f"q{len(self.registers)}"
-                    self.registers[reg_name] = QubitRegister(
-                        name=reg_name,
-                        size=4,  # Default to 4-bit registers
-                        qiskit_name=qiskit_name
-                    )
+                    if reg_name.startswith('%'):
+                        register_sizes[reg_name] = 4  # Default size
+            
+            # Auto-create or resize registers as needed
+            for reg_name, required_size in register_sizes.items():
+                if reg_name.startswith('%'):
+                    if reg_name not in self.registers:
+                        # Create new register with required size
+                        qiskit_name = f"q{len(self.registers)}"
+                        self.registers[reg_name] = QubitRegister(
+                            name=reg_name,
+                            size=required_size,
+                            qiskit_name=qiskit_name
+                        )
+                        print(f"   🔍 Auto-created register {reg_name} -> {qiskit_name} (size: {required_size})")
+                    else:
+                        # Update existing register size if needed
+                        existing_reg = self.registers[reg_name]
+                        if existing_reg.size < required_size:
+                            old_size = existing_reg.size
+                            existing_reg.size = required_size
+                            print(f"   📈 Resized register {reg_name} from {old_size} to {required_size} qubits")
             
             self.operations.append(QuantumOperation(
                 op_type=gate_type,
@@ -234,218 +281,6 @@ class UniversalQiskitGenerator:
         # If we get here, no pattern matched
         return False
     
-    # def calculate_expected_result(self) -> int:
-    #     """Calculate expected classical result by simulating MLIR operations"""
-    #     print("\n🧮 Calculating expected result from operations...")
-        
-    #     if not self.operations:
-    #         print("❌ No operations found - cannot calculate expected result")
-    #         self.expected_result = 0
-    #         return 0
-        
-    #     # Initialize variables
-    #     variables = {}
-    #     for reg_name, reg_info in self.registers.items():
-    #         if reg_info.initial_value is not None:
-    #             variables[reg_name] = reg_info.initial_value
-        
-    #     print(f"Initial values: {variables}")
-        
-    #     if not variables:
-    #         print("❌ No initial values found")
-    #         self.expected_result = 0
-    #         return 0
-        
-    #     # For gate-level MLIR (like your and_test), we need to simulate the effect of CCX gates
-    #     # Since we have q0=5 (101), q1=4 (100), and CCX gates doing bitwise AND
-    #     # REMOVE the hardcoded AND logic and replace with:
-    #     if '%q0' in variables and '%q1' in variables:
-    #         q0_val = variables['%q0']
-    #         q1_val = variables['%q1']
-            
-    #         # Check what operation this actually is based on the original MLIR
-    #         ccx_gates = [op for op in self.operations if op.op_type == 'ccx']
-    #         if len(ccx_gates) >= 3:
-    #             # Detect operation type from MLIR filename or operation pattern
-    #             # For OR: result = q0_val | q1_val
-    #             # For AND: result = q0_val & q1_val
-                
-    #             # GENERIC: Let the circuit operations below handle this instead
-    #             # Don't hardcode any operation here
-    #             pass
-        
-                
-    #     # Simulate other operations
-    #     for i, op in enumerate(self.operations):
-    #         print(f"Step {i+1}: {op.op_type} - {op.description}")
-            
-    #         if op.op_type.endswith("_circuit") and len(op.operands) >= 2:
-    #             circuit_type = op.op_type.replace("_circuit", "")
-                
-    #             if len(op.operands) >= 3:  # Binary operations
-    #                 a_reg, b_reg, result_reg = op.operands[:3]
-    #                 print(f"   Binary operation: {a_reg} {circuit_type} {b_reg} -> {result_reg}")
-                    
-    #                 if a_reg in variables and b_reg in variables:
-    #                     a_val, b_val = variables[a_reg], variables[b_reg]
-    #                     print(f"   Values: {a_reg}={a_val}, {b_reg}={b_val}")
-                        
-    #                     # Calculate result based on operation
-    #                     if circuit_type == "add":
-    #                         result = a_val + b_val & 0xF
-    #                     elif circuit_type == "sub": 
-    #                         result = a_val - b_val & 0xF
-    #                     elif circuit_type == "mul":
-    #                         result = a_val * b_val & 0xF
-    #                     elif circuit_type == "div":
-    #                         result = (a_val // b_val) & 0xF if b_val != 0 else 0
-    #                     elif circuit_type == "mod":
-    #                         result = (a_val % b_val) & 0xF if b_val != 0 else 0
-    #                     elif circuit_type == "and":
-    #                         result = (a_val & b_val) & 0xF  # Bitwise AND
-    #                         print(f"   🔍 Bitwise AND: {a_val} & {b_val} = {result}")
-    #                         print(f"   🔍 Binary: {bin(a_val)} & {bin(b_val)} = {bin(result)}")
-    #                     elif circuit_type == "or":
-    #                         result = (a_val | b_val) & 0xF  # Bitwise OR
-    #                         print(f"   🔍 Bitwise OR: {a_val} | {b_val} = {result}")
-    #                         print(f"   🔍 Binary: {bin(a_val)} | {bin(b_val)} = {bin(result)}")
-    #                     elif circuit_type == "xor":
-    #                         result = a_val ^ b_val
-    #                     elif circuit_type == "post_inc":
-    #                         variables[op.operands[1]] = a_val  # original
-    #                         variables[op.operands[2]] = a_val + 1  # incremented
-    #                         print(f"   🔍 Post-increment: orig={a_val}, inc={a_val + 1}")
-    #                         continue
-    #                     elif circuit_type == "post_dec":
-    #                         variables[op.operands[1]] = a_val  # original
-    #                         variables[op.operands[2]] = a_val - 1  # decremented
-    #                         print(f"   🔍 Post-decrement: orig={a_val}, dec={a_val - 1}")
-    #                         continue
-    #                     elif circuit_type == "gt":
-    #                         result = 1 if a_val > b_val else 0
-    #                         print(f"   🔍 Greater than: {a_val} > {b_val} = {result}")
-    #                     elif circuit_type == "lt":
-    #                         result = 1 if a_val < b_val else 0
-    #                         print(f"   🔍 Less than: {a_val} < {b_val} = {result}")
-    #                     elif circuit_type == "eq":
-    #                         result = 1 if a_val == b_val else 0
-    #                         print(f"   🔍 Equal: {a_val} == {b_val} = {result}")
-    #                     elif circuit_type == "ne":
-    #                         result = 1 if a_val != b_val else 0
-    #                         print(f"   🔍 Not equal: {a_val} != {b_val} = {result}")
-    #                     elif circuit_type == "ge":
-    #                         result = 1 if a_val >= b_val else 0
-    #                         print(f"   🔍 Greater or equal: {a_val} >= {b_val} = {result}")
-    #                     elif circuit_type == "le":
-    #                         result = 1 if a_val <= b_val else 0
-    #                         print(f"   🔍 Less or equal: {a_val} <= {b_val} = {result}")
-    #                     else:
-    #                         print(f"   ❓ Unknown operation: {circuit_type}")
-    #                         continue
-                        
-    #                     result = result & 0xF  # 4-bit mask
-    #                     variables[result_reg] = result
-    #                     print(f"   ✅ Result: {result_reg} = {result}")
-    #                 else:
-    #                     print(f"   ❌ Missing operands: {a_reg} in vars: {a_reg in variables}, {b_reg} in vars: {b_reg in variables}")
-                
-    #             elif len(op.operands) >= 2:  # Unary operations
-    #                 input_reg, result_reg = op.operands[:2]
-    #                 print(f"   Unary operation: {circuit_type} {input_reg} -> {result_reg}")
-                    
-    #                 if input_reg in variables:
-    #                     input_val = variables[input_reg]
-    #                     print(f"   Value: {input_reg}={input_val}")
-                        
-    #                     if circuit_type == "not":
-    #                         result = ~input_val & 0xF  # Bitwise NOT
-    #                         print(f"   🔍 Bitwise NOT: ~{input_val} = {result}")
-    #                         print(f"   🔍 Binary: ~{bin(input_val)} = {bin(result)} (4-bit)")
-    #                     elif circuit_type == "neg":
-    #                         result = (-input_val) & 0xF  # Negation
-    #                         print(f"   🔍 Negation: -{input_val} = {result}")
-    #                     else:
-    #                         print(f"   ❓ Unknown unary operation: {circuit_type}")
-    #                         continue
-                        
-    #                     variables[result_reg] = result
-    #                     print(f"   ✅ Result: {result_reg} = {result}")
-    #                 else:
-    #                     print(f"   ❌ Missing input: {input_reg} not in variables")
-        
-    #     # Find measurement result
-    #     final_result = 0
-    #     measured_register = None
-        
-    #     for op in reversed(self.operations):
-    #         if op.op_type == "measure" and op.operands[0] in variables:
-    #             measured_register = op.operands[0]
-    #             final_result = variables[measured_register]
-    #             print(f"🎯 Found measurement of {measured_register} = {final_result}")
-    #             break
-        
-    #     if not measured_register:
-    #         print(f"❌ No measurement found in operations")
-    #         # For gate-level MLIR, use the result register (%q2) which should contain the AND result
-    #         if '%q2' in variables:
-    #             measured_register = '%q2'
-    #             final_result = variables[measured_register]
-    #             print(f"🎯 Using result register {measured_register}: {final_result}")
-    #         elif variables:
-    #             measured_register = list(variables.keys())[-1]  # Use last variable
-    #             final_result = variables[measured_register]
-    #             print(f"🎯 Using last variable {measured_register}: {final_result}")
-        
-    #     print(f"📊 All final values: {variables}")
-    #     print(f"🎯 Expected result: {final_result}")
-    #     self.expected_result = final_result
-    #     return final_result
-
-    def calculate_expected_result(self) -> int:
-        """
-        GENERALIZED: Calculate expected result for all quantum operations
-        Works by reconstructing the original C operation from initial values and MLIR patterns
-        """
-        print("\n🧮 Calculating expected result (generalized)...")
-        
-        # Step 1: Extract initial values
-        variables = {}
-        for reg_name, reg_info in self.registers.items():
-            if reg_info.initial_value is not None:
-                variables[reg_name] = reg_info.initial_value
-        
-        print(f"📊 Initial values: {variables}")
-        
-        if not variables:
-            print("❌ No initial values found")
-            self.expected_result = 0
-            return 0
-        
-        # Step 2: Get input values (typically %q0, %q1, etc.)
-        sorted_regs = sorted(variables.keys())
-        input_values = [variables[reg] for reg in sorted_regs]
-        
-        print(f"📊 Sorted inputs: {input_values}")
-        
-        # Step 3: Detect operation type from gate pattern analysis
-        operation_type = self._detect_operation_from_gates()
-        print(f"🔍 Detected operation: {operation_type}")
-        
-        # Step 4: Calculate result based on detected operation
-        if len(input_values) >= 2:
-            a, b = input_values[0], input_values[1]
-            result = self._calculate_binary_operation(operation_type, a, b)
-        elif len(input_values) == 1:
-            a = input_values[0]
-            result = self._calculate_unary_operation(operation_type, a)
-        else:
-            print("❌ No input values for calculation")
-            result = 0
-        
-        print(f"🎯 Expected result: {result}")
-        self.expected_result = result
-        return result
-
     def _detect_operation_from_gates(self):
         """
         Detect the original C operation by analyzing the quantum gate pattern
@@ -462,7 +297,7 @@ class UniversalQiskitGenerator:
         
         print(f"🔧 Gate analysis: {gate_counts}, total: {total_gates}")
         
-        # Heuristics based on your quantum gate patterns:
+        # Heuristics based on quantum gate patterns:
         ccx_count = gate_counts.get('ccx', 0)
         cx_count = gate_counts.get('cx', 0)
         x_count = gate_counts.get('x', 0)
@@ -609,24 +444,28 @@ class UniversalQiskitGenerator:
             return reg_part, index
         return operand, None
     
-    def generate_qiskit_code(self) -> List[str]:
-        """Generate complete Qiskit Python code"""
-        
-        # Calculate expected result
-        expected = self.calculate_expected_result()
+    def generate_qiskit_code(self, expected_result: int) -> List[str]:
+        """Generate complete Qiskit Python code with external expected result"""
         
         lines = [
             "#!/usr/bin/env python3",
             "'''",
             "Generated Qiskit Circuit from Optimized MLIR",
             "",
-            f"Expected classical result: {expected}",
+            f"Expected classical result: {expected_result}",
             "'''",
             "",
             "from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister",
             "from qiskit_aer import AerSimulator",
             "from qiskit.visualization import plot_histogram",
             "import matplotlib.pyplot as plt",
+            "",
+            "def convert_4bit_to_signed(unsigned_value):",
+            "    '''Convert 4-bit unsigned to signed interpretation'''",
+            "    if unsigned_value >= 8:",
+            "        return unsigned_value - 16",
+            "    else:",
+            "        return unsigned_value",
             "",
             "def initialize_register(qc, qreg, value, num_bits):",
             "    '''Initialize quantum register to classical value'''",
@@ -782,6 +621,11 @@ class UniversalQiskitGenerator:
             if reg_info.qiskit_name not in declared_names:
                 lines.append(f"    {reg_info.qiskit_name} = QuantumRegister({reg_info.size}, '{reg_info.qiskit_name}')")
                 declared_names.add(reg_info.qiskit_name)
+
+        for fb in [r.qiskit_name for r in self.registers.values() if r.qiskit_name.startswith("fallback_")]:
+            if fb not in declared_names:
+                lines.append(f"    {fb} = QuantumRegister(4, '{fb}')")
+                declared_names.add(fb)
         
         for cl_reg, qiskit_name in self.classical_registers.items():
             if qiskit_name not in declared_names:
@@ -871,7 +715,7 @@ class UniversalQiskitGenerator:
         lines.extend([
             "    return qc, operations_log",
             "",
-            f"def run_simulation(qc, operations_log, expected_result={expected}):",
+            f"def run_simulation(qc, operations_log, expected_result={expected_result}):",
             "    '''Run quantum simulation and analyze results'''",
             "    print('🚀 Running quantum simulation...')",
             "    print(f'Circuit: {qc.num_qubits} qubits, {qc.depth()} depth, {len(qc.data)} gates')",
@@ -884,7 +728,8 @@ class UniversalQiskitGenerator:
             "    print()",
             "    ",
             "    # Run simulation",
-            "    simulator = AerSimulator()",
+            "    from qiskit_aer import AerSimulator",
+            "    simulator = AerSimulator(method='matrix_product_state') ",
             "    job = simulator.run(qc, shots=1024)",
             "    result = job.result()",
             "    counts = result.get_counts()",
@@ -899,16 +744,18 @@ class UniversalQiskitGenerator:
             "        print(f'  {bitstring} (decimal: {decimal:2d}) -> {count:4d} shots ({percentage:5.1f}%)')",
             "    ",
             "    most_frequent_bits, most_frequent_count = sorted_results[0]",
-            "    quantum_result = int(most_frequent_bits, 2)",
+            "    quantum_result_unsigned = int(most_frequent_bits, 2)",
+            "    quantum_result_signed = convert_4bit_to_signed(quantum_result_unsigned)",
+            "    print(f'🎯 Quantum Result (unsigned): {quantum_result_unsigned}')",
+            "    print(f'🎯 Quantum Result (signed): {quantum_result_signed}')",
             "    ",
-            "    print(f'\\n🎯 Quantum Result: {quantum_result} (binary: {most_frequent_bits})')",
             "    print(f'🧮 Expected Result: {expected_result}')",
             "    ",
-            "    if quantum_result == expected_result:",
+            "    if quantum_result_unsigned == expected_result:",
             "        print('   ✅ PERFECT MATCH!')",
             "        accuracy = 'PERFECT'",
             "    else:",
-            "        difference = abs(quantum_result - expected_result)",
+            "        difference = abs(quantum_result_unsigned - expected_result)",
             "        print(f'   ⚠️  Difference: {difference}')",
             "        ",
             "        # Check if expected appears in results",
@@ -920,7 +767,7 @@ class UniversalQiskitGenerator:
             "        ",
             "        accuracy = f'DIFF_{difference}'",
             "    ",
-            "    return quantum_result, accuracy, counts",
+            "    return quantum_result_unsigned, accuracy, counts",
             "",
             "def visualize_circuit(qc):",
             "    '''Show circuit diagram'''",
@@ -970,13 +817,13 @@ class UniversalQiskitGenerator:
             "        visualize_circuit(qc)",
             "        ",
             "        # Run simulation",
-            f"        quantum_result, accuracy, all_counts = run_simulation(qc, operations_log, {expected})",
+            f"        quantum_result, accuracy, all_counts = run_simulation(qc, operations_log, {expected_result})",
             "        ",
             "        # Final summary",
             "        print('\\n' + '=' * 50)",
             "        print('🎊 Execution Complete!')",
             "        print(f'   Quantum Result: {quantum_result}')",
-            f"        print(f'   Expected Result: {expected}')",
+            f"        print(f'   Expected Result: {expected_result}')",
             "        print(f'   Accuracy: {accuracy}')",
             "        ",
             "        return qc, operations_log, quantum_result",
@@ -1005,24 +852,25 @@ class UniversalQiskitGenerator:
         
         return lines
     
-    def generate_complete_qiskit(self, mlir_content: str) -> str:
-        """Generate complete Qiskit code from MLIR"""
+    def generate_complete_qiskit(self, mlir_content: str, expected_result: int) -> str:
+        """Generate complete Qiskit code from MLIR with external expected result"""
         self.parse_optimized_mlir(mlir_content)
-        qiskit_lines = self.generate_qiskit_code()
+        qiskit_lines = self.generate_qiskit_code(expected_result)
         return '\n'.join(qiskit_lines)
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python circuit_generator.py <optimized.mlir> <output.py>")
-        print("\nUniversal generator that focuses on:")
-        print("  ✅ Quantum circuit generation")
-        print("  ✅ Expected vs quantum results") 
-        print("  ✅ Circuit visualization")
-        print("  ✅ Automatic execution")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: python circuit_generator_fixed.py <optimized.mlir> <output.py> [expected_res.txt]")
+        print("\nFixed generator that:")
+        print("  ✅ Reads expected result from external file")
+        print("  ✅ Generates quantum circuits correctly")
+        print("  ✅ Shows accurate expected vs quantum results") 
+        print("  ✅ Circuit visualization and execution")
         sys.exit(1)
     
     input_file = sys.argv[1]
     output_file = sys.argv[2]
+    expected_file = sys.argv[3] if len(sys.argv) == 4 else "expected_res.txt"
     
     # Read MLIR
     try:
@@ -1035,8 +883,13 @@ def main():
     print(f"📄 Reading MLIR from: {input_file}")
     
     # Generate Qiskit code
-    generator = UniversalQiskitGenerator()
-    qiskit_code = generator.generate_complete_qiskit(mlir_content)
+    generator = FixedQiskitGenerator()
+    
+    # Load expected result from external file
+    expected_result = generator.load_expected_result(expected_file)
+    
+    # Generate circuit with the loaded expected result
+    qiskit_code = generator.generate_complete_qiskit(mlir_content, expected_result)
     
     # Write output
     try:
@@ -1048,8 +901,11 @@ def main():
         sys.exit(1)
     
     print(f"📊 {len(generator.registers)} registers, {len(generator.operations)} operations")
-    print(f"🧮 Expected result: {generator.expected_result}")
+    print(f"🧮 Expected result (from {expected_file}): {expected_result}")
     print(f"🎯 Run with: python {output_file}")
 
 if __name__ == "__main__":
     main()
+
+
+

@@ -63,7 +63,7 @@ python3 ../backend/gate_optimizer2.py \
 
 # MODIFIED Step 6: gate-opt MLIR → circuit.py (now uses expected_res.txt)
 echo "6) circuit_generator (with correct expected result)"
-python3 ../backend/circuit_generator.py \
+python3 ../backend/circuit_generator2.py \
       "$BASE"_gate_opt.mlir circuit.py expected_res.txt
 
 echo
