@@ -49,7 +49,7 @@ fi
 echo "3) mlir optimizer (--preserve-all)"
 python3 ../backend/quantum_mlir_optimization_script.py \
       "$BASE.mlir" "$BASE"_opt.mlir \
-      --preserve-all
+      
 
 # Step 4: opt MLIR → gate MLIR
 echo "4) gate_converter"
