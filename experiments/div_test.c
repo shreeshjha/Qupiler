@@ -1,8 +1,8 @@
 #include <stdio.h>
 
 void quantum_circuit() {
-  int a = 6;
-  int b = 3;
+  int a = 8;
+  int b = 1;
   int result = a / b;
   printf("%d\n", result);
 }

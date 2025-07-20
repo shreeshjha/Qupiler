@@ -1,11 +1,11 @@
 #include <stdio.h>
 
 void quantum_circuit() {
-  int a = 8;
-  a++;
-  printf("%d\n", a);
+  int a = 3;
+  int b = 4;
+  int sum = a + b;
+  printf("%d\n", sum);
 }
-
 int main() {
   quantum_circuit();
   return 0;

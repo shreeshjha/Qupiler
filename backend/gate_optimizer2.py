@@ -744,81 +744,134 @@ class FixedUniversalGateOptimizer:
 
 
 
-    def _decompose_div_circuit(self, operands):
+    # ----------  Cuccaro ripple-carry, controlled  -----------------
+    #────────── Ripple–carry adder, Cuccaro style ────────────────────
+    # ──────────────────────────────────────────────────────────────
+# 1.  Ripple-carry adder / subtractor (Cuccaro)
+# ──────────────────────────────────────────────────────────────
+    def _controlled_adder(self, ctl, R, D, n, subtract=False):
         """
-        Fixed division circuit decomposition that only uses provided operands
-        operands = [dividend_reg, divisor_reg, quotient_reg]
-        Only computes quotient, doesn't reference non-existent remainder register
+        Cuccaro ripple-carry block.
+        – R has (n+1) qubits  R[0 … n]   (MSB = sign bit  R[n])
+        – D has  n     qubits  D[0 … n-1]
+        – When  ctl == 1  this executes   R ← R ± D
+        (add when subtract==False, subtract when subtract==True)
+        Uses the carry register  %q22[0 … n].
         """
-        import re
+        C = "%q22"
+        g = []
 
-        def _get_init_val(reg: str) -> int:
-            """Helper to find register initialization value"""
-            bare = reg.lstrip('%')
-            regexes = [
-                re.compile(rf"\bq\.init\s+%?{bare}\s*,\s*(\d+)", re.I),
-                re.compile(rf"Initialize\s+%?{bare}\s*=\s*(\d+)", re.I),
+        # 1) Two’s-complement prepare (only if we want subtraction)
+        if subtract:
+            # invert the low-width bits of D
+            for i in range(n):
+                g.append(self._create_gate_op(
+                    "ccx", [ctl, f"{D}[{i}]", f"{D}[{i}]"],
+                    f"invert D[{i}]"))
+            # *** essential ***  also flip the sign-extension bit R[n]
+            g.append(self._create_gate_op(
+                "cx", [ctl, f"{R}[{n}]"], "flip sign bit"))
+
+        # 2) seed the +1 (two’s-complement) into carry[0] when ctl==1
+        g.append(self._create_gate_op("cx", [ctl, f"{C}[0]"], "seed carry"))
+
+        # 3) MAJ ripple forward
+        for i in range(n):
+            g += [
+                self._create_gate_op("cx",  [f"{R}[{i}]", f"{D}[{i}]"], ""),
+                self._create_gate_op("cx",  [f"{C}[{i}]", f"{R}[{i}]"], ""),
+                self._create_gate_op("ccx", [f"{C}[{i}]", f"{D}[{i}]", f"{C}[{i+1}]"], "")
             ]
 
-            for attr_name in dir(self):
-                obj = getattr(self, attr_name)
-                
-                if isinstance(obj, (list, tuple, set)):
-                    for op in obj:
-                        kind = getattr(op, "kind", getattr(op, "op_type", "")).lower()
-                        tgt = getattr(op, "target", getattr(op, "qubit", None))
-                        val = getattr(op, "value", getattr(op, "init_value", None))
-                        if kind.startswith("init") and (tgt in (reg, bare)) and val is not None:
-                            return int(val)
-                        if isinstance(op, str):
-                            for pat in regexes:
-                                m = pat.search(op)
-                                if m:
-                                    return int(m.group(1))
+        # 4) UNMAJ ripple backward
+        for i in reversed(range(n)):
+            g += [
+                self._create_gate_op("ccx", [f"{C}[{i}]", f"{D}[{i}]", f"{C}[{i+1}]"], ""),
+                self._create_gate_op("cx",  [f"{C}[{i}]", f"{R}[{i}]"], ""),
+                self._create_gate_op("cx",  [f"{R}[{i}]", f"{D}[{i}]"], "")
+            ]
+        g.append(self._create_gate_op(
+            "cx", [f"{C}[{n}]", f"{R}[{n}]"], "add carry→sign"))
 
-                if isinstance(obj, str):
-                    for pat in regexes:
-                        m = pat.search(obj)
-                        if m:
-                            return int(m.group(1))
+        # 5) unseed carry
+        g.append(self._create_gate_op("cx", [ctl, f"{C}[0]"], "unseed"))
 
-            # Fallback: return 0 if not found
-            print(f"Warning: Initial value for {reg} not found, using 0")
-            return 0
+        # 6) restore D if we inverted it
+        if subtract:
+            for i in range(n):
+                g.append(self._create_gate_op(
+                    "ccx", [ctl, f"{D}[{i}]", f"{D}[{i}]"],
+                    f"restore D[{i}]"))
 
-        # Unpack operands
-        dividend_reg, divisor_reg, quotient_reg = operands
-        n = 4  # 4-bit registers
+        return g
 
-        # Get constants from initialization
-        dividend = _get_init_val(dividend_reg) & ((1 << n) - 1)
-        divisor = _get_init_val(divisor_reg) & ((1 << n) - 1)
-        
-        if divisor == 0:
-            quotient = 0  # Handle division by zero
-        else:
-            quotient = dividend // divisor
-        
-        quotient &= ((1 << n) - 1)  # Keep within 4-bit range
 
-        gates = []
-        gates.append(self._create_gate_op("comment", [], f"=== DIVISION: {dividend} ÷ {divisor} = {quotient} ==="))
+    def _adder_uncontrolled(self, R, D, n, subtract=False):
+        """Always add (or subtract) D to R.  Uses one |1⟩ ancilla %q23[0]."""
+        ctl = "%q23[0]"
+        g  = [self._create_gate_op("x", [ctl], "ctl = 1")]
+        g += self._controlled_adder(ctl, R, D, n, subtract)
+        g += [self._create_gate_op("x", [ctl], "ctl = 0")]
+        return g
 
-        # Clear quotient register (double-X pattern)
+
+        # ──────────────────────────────────────────────────────────────
+    # 2.  Non-restoring division core
+    # ──────────────────────────────────────────────────────────────
+    def _decompose_div_circuit(self, ops):
+        """Builds a 4-bit non-restoring division circuit (dividend / divisor)."""
+        dividend, divisor, quotient = ops
+        n, R, flag = 4, "%q20", "%q21[0]"
+        g = []
+
+        # initialise R, flag, Q
+        for i in range(n + 1):
+            g.append(self._create_gate_op("reset", [f"{R}[{i}]"], "clr R"))
+        g.append(self._create_gate_op("reset", [flag], "clr flag"))
         for i in range(n):
-            gates.append(self._create_gate_op("x", [f"{quotient_reg}[{i}]"], "clear quotient"))
-            gates.append(self._create_gate_op("x", [f"{quotient_reg}[{i}]"], "reset quotient"))
+            g.append(self._create_gate_op("reset", [f"{quotient}[{i}]"], "clr Q"))
 
-        # Set quotient bits
-        for i in range(n):
-            if (quotient >> i) & 1:
-                gates.append(self._create_gate_op("x", [f"{quotient_reg}[{i}]"], f"set quotient[{i}] = 1"))
+        # main loop (MSB → LSB)
+        for step in range(n):
+            bit = n - 1 - step
 
-        gates.append(self._create_gate_op("comment", [], "division complete (quotient only)"))
-        return gates
-   
+            # 1) shift remainder left and load next dividend bit
+            for j in range(n, 0, -1):
+                g.append(self._create_gate_op("cx", [f"{R}[{j-1}]", f"{R}[{j}]"], "shift"))
+            g.append(self._create_gate_op("cx", [f"{dividend}[{bit}]", f"{R}[0]"], "load bit"))
+
+            # 2) unconditional subtract  (R ← R − D)
+            g += self._adder_uncontrolled(R, divisor, n, subtract=True)
+
+            # 3) flag ← sign(R)
+            g.append(self._create_gate_op("cx", [f"{R}[{n}]", flag], "copy sign"))
+
+            # 4) clear borrow-out ancilla carry[n]     (X – CNOT – X on flag)
+            g += [
+                self._create_gate_op("x",  [flag], ""),
+                self._create_gate_op("cx", [flag, f"%q22[{n}]"], ""),
+                self._create_gate_op("x",  [flag], "")
+            ]
+
+            # 5) if flag==1 (R negative) then restore  (R ← R + D)
+            g += self._controlled_adder(flag, R, divisor, n, subtract=False)
+
+            # 6) store quotient bit   Q[bit] = ¬flag
+            g += [
+                self._create_gate_op("x",  [flag], ""),
+                self._create_gate_op("cx", [flag, f"{quotient}[{bit}]"], "write Q"),
+                self._create_gate_op("x",  [flag], "")
+            ]
+
+        g.append(self._create_gate_op("comment", [], "division complete"))
+        return g
+
+
 
         
+            
+
+
 
     # -------------------------------------------------------------------------
 #  FixedUniversalGateOptimizer._decompose_mod_circuit
@@ -1160,199 +1213,123 @@ class FixedUniversalGateOptimizer:
         return gates
 
 
-    # Even more minimalist version that uses the absolute minimum gates
-    def _decompose_neg_circuit_absolute_minimal(self, operands):
-        """
-        ABSOLUTE MINIMAL negation using mathematical shortcuts
-        
-        Uses the fact that for 4-bit two's complement:
-        -x = 16 - x (when x > 0)
-        
-        We can implement this with fewer operations than full ~x + 1.
-        """
-        input_reg, result_reg = operands
-        
-        gates = []
-        gates.append(self._create_gate_op("comment", [], "=== ABSOLUTE MINIMAL NEGATION ==="))
-        
-        # For small 4-bit numbers, we can use bit manipulation tricks
-        # Key insight: -x = (15 - x) + 1 = 15 - (x - 1)
-        
-        # Step 1: Copy input to result
-        for i in range(4):
-            gates.append(self._create_gate_op("cx", 
-                [f"{input_reg}[{i}]", f"{result_reg}[{i}]"], 
-                f"Copy input[{i}]"))
-        
-        # Step 2: Apply bitwise NOT (equivalent to 15 - x for 4-bit)
-        for i in range(4):
-            gates.append(self._create_gate_op("x", 
-                [f"{result_reg}[{i}]"], 
-                f"NOT result[{i}]"))
-        
-        # Step 3: Add 1 using minimal ripple carry
-        # Use the fact that adding 1 to binary is: flip rightmost 0 and all 1s to its right
-        
-        # Always flip bit 0
-        gates.append(self._create_gate_op("x", 
-            [f"{result_reg}[0]"], 
-            "Add 1: flip bit 0"))
-        
-        # For carry propagation, use original input to determine pattern
-        # If original input[i] was 0, then after NOT it's 1, so adding 1 causes carry
-        # If original input[i] was 1, then after NOT it's 0, so adding 1 stops carry
-        
-        # Carry to bit 1 happens when original input[0] was 0
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Flip input[0] to get ~input[0]"))
-        gates.append(self._create_gate_op("cx", 
-            [f"{input_reg}[0]", f"{result_reg}[1]"], 
-            "Carry to bit 1 if original input[0] was 0"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Restore input[0]"))
-        
-        # Carry to bit 2 happens when both input[0] and input[1] were 0
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Flip input[0]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[1]"], 
-            "Flip input[1]"))
-        gates.append(self._create_gate_op("ccx", 
-            [f"{input_reg}[0]", f"{input_reg}[1]", f"{result_reg}[2]"], 
-            "Carry to bit 2"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Restore input[0]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[1]"], 
-            "Restore input[1]"))
-        
-        # Carry to bit 3 happens when input[0], input[1], and input[2] were all 0
-        # This requires a 3-input AND, which we implement with 2 CCX gates
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Flip input[0]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[1]"], 
-            "Flip input[1]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[2]"], 
-            "Flip input[2]"))
-        
-        # Temporarily use result[3] as auxiliary for 3-input AND
-        gates.append(self._create_gate_op("ccx", 
-            [f"{input_reg}[0]", f"{input_reg}[1]", f"{result_reg}[3]"], 
-            "Temp: ~input[0] & ~input[1]"))
-        gates.append(self._create_gate_op("ccx", 
-            [f"{result_reg}[3]", f"{input_reg}[2]", f"{result_reg}[3]"], 
-            "Final carry to bit 3"))
-        
-        # Restore input registers
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[0]"], 
-            "Restore input[0]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[1]"], 
-            "Restore input[1]"))
-        gates.append(self._create_gate_op("x", 
-            [f"{input_reg}[2]"], 
-            "Restore input[2]"))
-        
-        gates.append(self._create_gate_op("comment", [], "=== MINIMAL NEGATION COMPLETE ==="))
-        
-        return gates
+   
 
 
-   # -------------------------------------------------------------------------
-#  FixedUniversalGateOptimizer._decompose_post_inc_dec_circuit
-# -------------------------------------------------------------------------
+ 
     def _decompose_post_inc_dec_circuit(self, circuit_type, operands):
         """
-        Handles both “post-inc” and “post-dec”.
+        Handles both “post-inc” and “post-dec” using gate-level circuits.
 
-        input_reg  : the source (e.g. %q0)
-        orig_reg   : receives the original value
-        new_reg    : receives (value ± 1) mod 2ⁿ
+        input_reg  : The source register (e.g., %q0).
+        orig_reg   : A register to receive the original value of input_reg.
+        new_reg    : A register to receive the incremented or decremented value.
 
-        Because the generator initialises input_reg with a compile-time constant,
-        the optimiser folds the operation and writes the two bit-patterns with X
-        gates.
+        This implementation builds a true quantum circuit for incrementing or
+        decrementing the value from input_reg, storing the result in new_reg.
+        It does not rely on constant-folding and works for registers in any state.
         """
-
-        import re
-
         input_reg, orig_reg, new_reg = operands
         is_inc = "inc" in circuit_type.lower()
-
-        # ── helper: find the initial constant for any %qX register ──────────
-        def _get_init_val(reg: str) -> int:
-            bare = reg.lstrip('%')
-            regexes = [
-                re.compile(rf"\bq\.init\s+%?{bare}\s*,\s*(\d+)", re.I),
-                re.compile(rf"Initialize\s+%?{bare}\s*=\s*(\d+)", re.I),
-            ]
-            for attr_name in dir(self):
-                obj = getattr(self, attr_name)
-                # structured op objects
-                if isinstance(obj, (list, tuple, set)):
-                    for op in obj:
-                        kind = getattr(op, "kind", getattr(op, "op_type", "")).lower()
-                        tgt  = getattr(op, "target", getattr(op, "qubit", None))
-                        val  = getattr(op, "value", getattr(op, "init_value", None))
-                        if kind.startswith("init") and (tgt in (reg, bare)) and val is not None:
-                            return int(val)
-                        if isinstance(op, str):
-                            for pat in regexes:
-                                m = pat.search(op)
-                                if m:
-                                    return int(m.group(1))
-                # plain string attributes
-                if isinstance(obj, str):
-                    for pat in regexes:
-                        m = pat.search(obj)
-                        if m:
-                            return int(m.group(1))
-            raise ValueError(f"Initial value for {reg} not found in IR")
-
-        # ── determine bit-width (prefer optimiser helper, else assume 4) ─────
+        
+        # Determine the bit-width of the registers. Assumes 4 if not specified.
+        # The `_register_size` helper should exist on the class instance.
         n = getattr(self, "_register_size", lambda _: 4)(input_reg)
-
-        val = _get_init_val(input_reg) & ((1 << n) - 1)
-        if is_inc:
-            new_val = (val + 1) & ((1 << n) - 1)
-        else:                                      # post-decrement
-            new_val = (val - 1) & ((1 << n) - 1)
+        
+        # Ancilla qubit for constructing multi-controlled gates (like C3X from CCX).
+        # We assume a conventional temporary register is available for this.
+        ancilla_qubit = "%q22[0]"
 
         gates = []
 
-        # ── clear target registers (generator style: double-X) ──────────────
-        for i in range(n):
-            for reg in (orig_reg, new_reg):
-                gates.append(self._create_gate_op("x", [f"{reg}[{i}]"], "clr"))
-                gates.append(self._create_gate_op("x", [f"{reg}[{i}]"], "clr"))
+        # Helper function to create a controlled-NOT chain for inc/dec.
+        # This generates an N-bit C(N-1)-NOT gate.
+        def _multi_controlled_not(controls, target, description):
+            """Builds a multi-controlled NOT gate using CCX and one ancilla."""
+            op_list = []
+            num_controls = len(controls)
 
-        # ── write original value into orig_reg ───────────────────────────────
-        for i in range(n):
-            if (val >> i) & 1:
-                gates.append(
-                    self._create_gate_op("x",
-                                        [f"{orig_reg}[{i}]"],
-                                        f"orig[{i}] = 1"))
+            if num_controls == 0:
+                # Simple X gate
+                op_list.append(self._create_gate_op("x", [target], description))
+                return op_list
+            
+            if num_controls == 1:
+                # CNOT / CX gate
+                op_list.append(self._create_gate_op("cx", [controls[0], target], description))
+                return op_list
+                
+            if num_controls == 2:
+                # Toffoli / CCX gate
+                op_list.append(self._create_gate_op("ccx", [controls[0], controls[1], target], description))
+                return op_list
 
-        # ── write ±1 result into new_reg ─────────────────────────────────────
-        for i in range(n):
-            if (new_val >> i) & 1:
-                gates.append(
-                    self._create_gate_op("x",
-                                        [f"{new_reg}[{i}]"],
-                                        f"new[{i}] = 1"))
+            # For >2 controls, decompose using an ancilla qubit.
+            # This implements C(N)X from C(N-1)X and CCX.
+            # We use a linear cascade of Toffoli gates.
+            op_list.append(self._create_gate_op("comment", [], f"Decomposing C{num_controls}X gate"))
+            op_list.append(self._create_gate_op("ccx", [controls[0], controls[1], ancilla_qubit], "c_and_0"))
+            
+            # Cascade through remaining controls
+            for i in range(2, num_controls):
+                op_list.append(self._create_gate_op("ccx", [controls[i], ancilla_qubit, ancilla_qubit], "c_and_i"))
 
-        label = "post-increment folded" if is_inc else "post-decrement folded"
-        gates.append(self._create_gate_op("comment", [], label))
+            # Apply the final controlled-NOT
+            op_list.append(self._create_gate_op("ccx", [ancilla_qubit, target, target], "apply_cnot")) # Using CCX as CX on target
+
+            # Uncompute the ancilla by reversing the cascade
+            for i in reversed(range(2, num_controls)):
+                op_list.append(self._create_gate_op("ccx", [controls[i], ancilla_qubit, ancilla_qubit], "uncompute_i"))
+                
+            op_list.append(self._create_gate_op("ccx", [controls[0], controls[1], ancilla_qubit], "uncompute_0"))
+            
+            return op_list
+
+        # --- Start of the main circuit construction ---
+
+        gates.append(self._create_gate_op("comment", [], "Post-Increment/Decrement Circuit"))
+
+        # 1. Copy the initial value from input_reg to both destination registers.
+        gates.append(self._create_gate_op("comment", [], "Step 1: Copy input value"))
+        for i in range(n):
+            gates.append(self._create_gate_op("cx", [f"{input_reg}[{i}]", f"{orig_reg}[{i}]"], f"orig[{i}]=in[{i}]"))
+            gates.append(self._create_gate_op("cx", [f"{input_reg}[{i}]", f"{new_reg}[{i}]"], f"new[{i}]=in[{i}]"))
+
+        if is_inc:
+            # 2. Implement Quantum Incrementer (new_reg++)
+            # Logic: new_reg[k] is flipped if all lower bits input_reg[0...k-1] are 1.
+            # This is a ripple-carry adder for (+ 1).
+            gates.append(self._create_gate_op("comment", [], "Step 2: Apply Incrementer to new_reg"))
+            for i in range(n):
+                control_qubits = [f"{input_reg}[{j}]" for j in range(i)]
+                target_qubit = f"{new_reg}[{i}]"
+                desc = f"inc bit {i}"
+                gates.extend(_multi_controlled_not(control_qubits, target_qubit, desc))
+        else:
+            # 3. Implement Quantum Decrementer (new_reg--)
+            # Logic: new_reg[k] is flipped if all lower bits input_reg[0...k-1] are 0.
+            # This is equivalent to a ripple-borrow subtractor for (- 1).
+            gates.append(self._create_gate_op("comment", [], "Step 2: Apply Decrementer to new_reg"))
+            for i in range(n):
+                control_qubits = [f"{input_reg}[{j}]" for j in range(i)]
+                target_qubit = f"{new_reg}[{i}]"
+                desc = f"dec bit {i}"
+
+                # To control on the |0⟩ state, we wrap control qubits with X gates.
+                for ctrl in control_qubits:
+                    gates.append(self._create_gate_op("x", [ctrl], "control on 0"))
+                
+                gates.extend(_multi_controlled_not(control_qubits, target_qubit, desc))
+
+                # Uncompute the X gates on the control qubits.
+                for ctrl in reversed(control_qubits):
+                    gates.append(self._create_gate_op("x", [ctrl], "uncompute control"))
+
+        label = "post-increment" if is_inc else "post-decrement"
+        gates.append(self._create_gate_op("comment", [], f"Circuit for {label} complete"))
+        
         return gates
+
 
 
     def _decompose_generic_circuit(self, circuit_type, operands):

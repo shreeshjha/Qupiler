@@ -64,11 +64,17 @@ class QuantumCircuitOptimizer:
         
         self.debug_print(f"Original: {self.stats.original_gates} gates, {self.stats.original_width} qubits")
         
+        for pass_num in range(2): # Run core passes twice
+            self.debug_print(f"--- Running Optimization Suite: Pass {pass_num + 1} ---")
+            self._optimization_pass_1_gate_cancellation()
+            self._optimization_pass_4_ts_gate_optimization()
+            self._optimization_pass_2_cnot_optimization()
+            self._optimization_pass_5_peephole_optimization()
+            self._optimization_pass_6_cnot_hadamard_optimization()
+
+        # Analyze lifetimes and coalesce qubits at the end
         self._analyze_qubit_lifetimes()
-        self._optimization_pass_1_gate_cancellation()
-        self._optimization_pass_2_cnot_optimization()
         self._optimization_pass_3_qubit_coalescing()
-        self._optimization_pass_5_peephole_optimization()
         
         optimized_mlir = self._generate_optimized_mlir()
         
@@ -132,11 +138,27 @@ class QuantumCircuitOptimizer:
             target = f"{x_match.group(1)}[{x_match.group(2)}]"
             return QuantumGate("x", [target], [], [target], line_num, line)
         
+        single_qubit_match = re.search(r'q\.(h|s|t|sdg|tdg|z)\s+(%q\d+\[\d+\])', line)
+        if single_qubit_match:
+            gate_type, target = single_qubit_match.groups()
+            return QuantumGate(gate_type, [target], [], [target], line_num, line)
+
+        
         circuit_match = re.search(r'q\.(\w+_circuit)\s+((?:%q\d+(?:,\s*)?)+)', line)
         if circuit_match:
             circuit_type, operands_str = circuit_match.groups()
             operands = [op.strip() for op in operands_str.split(',')]
             return QuantumGate(circuit_type, operands, [], [], line_num, line)
+        
+
+        generic_gate_match = re.search(r'q\.(\w+)\s+(.+)', line)
+        if generic_gate_match:
+            gate_type, operands_str = generic_gate_match.groups()
+            # Avoid matching things that are not gates
+            if gate_type in ['alloc', 'init', 'measure', 'return', 'comment']:
+                return None
+            operands = [op.strip() for op in operands_str.split(',')]
+            return QuantumGate(gate_type, operands, [], [], line_num, line)
         
         return None
     
@@ -272,11 +294,116 @@ class QuantumCircuitOptimizer:
         
         self.allocations = [q for q in self.allocations if q not in coalescing_map]
         self.stats.optimized_width = len(self.allocations)
+
+
+    # In the QuantumCircuitOptimizer class:
+
+    def _optimization_pass_4_ts_gate_optimization(self):
+        self.debug_print("Pass 4: T-gate and S-gate optimization...")
+        i = 0
+        while i < len(self.gates) - 1:
+            gate1 = self.gates[i]
+            
+            # Skip already eliminated gates
+            if gate1.is_eliminated:
+                i += 1
+                continue
+
+            # Find the next non-eliminated gate
+            next_gate_idx = -1
+            for j in range(i + 1, len(self.gates)):
+                if not self.gates[j].is_eliminated:
+                    next_gate_idx = j
+                    break
+            
+            if next_gate_idx == -1:
+                break
+
+            gate2 = self.gates[next_gate_idx]
+
+            # Check for gates on the same qubit
+            if gate1.qubits != gate2.qubits:
+                i += 1
+                continue
+
+            # Rule: T, Tdg -> Identity (cancel)
+            if (gate1.gate_type == "t" and gate2.gate_type == "tdg") or \
+            (gate1.gate_type == "tdg" and gate2.gate_type == "t"):
+                gate1.is_eliminated = True
+                gate2.is_eliminated = True
+                self.stats.gate_cancellations += 1
+                self.debug_print(f"Cancelled T-Tdg pair on {gate1.qubits[0]}")
+                i = next_gate_idx + 1
+                continue
+                
+            # Rule: S, Sdg -> Identity (cancel)
+            if (gate1.gate_type == "s" and gate2.gate_type == "sdg") or \
+            (gate1.gate_type == "sdg" and gate2.gate_type == "s"):
+                gate1.is_eliminated = True
+                gate2.is_eliminated = True
+                self.stats.gate_cancellations += 1
+                self.debug_print(f"Cancelled S-Sdg pair on {gate1.qubits[0]}")
+                i = next_gate_idx + 1
+                continue
+
+            # Rule: T, T -> S
+            if gate1.gate_type == "t" and gate2.gate_type == "t":
+                gate1.is_eliminated = True
+                gate2.is_eliminated = True
+                # Replace with a new S gate
+                new_gate = QuantumGate("s", gate1.qubits, [], gate1.target_qubits, gate1.line_number, "")
+                self.gates.insert(next_gate_idx + 1, new_gate)
+                self.stats.gate_cancellations += 1 # Counts as one net gate reduction
+                self.debug_print(f"Merged T, T into S on {gate1.qubits[0]}")
+                i = next_gate_idx + 1
+                continue
+
+            i += 1
+
     
     def _optimization_pass_5_peephole_optimization(self):
         self.debug_print("Pass 5: Peephole optimization...")
         
         self._optimize_multiplication_patterns()
+
+
+    # In the QuantumCircuitOptimizer class:
+
+    def _optimization_pass_6_cnot_hadamard_optimization(self):
+        self.debug_print("Pass 6: CNOT directionality optimization (H-CX-H)...")
+        i = 0
+        while i < len(self.gates) - 2:
+            gate1 = self.gates[i]
+            gate2 = self.gates[i+1]
+            gate3 = self.gates[i+2]
+
+            active_gates = not gate1.is_eliminated and not gate2.is_eliminated and not gate3.is_eliminated
+            is_h_cx_h = gate1.gate_type == 'h' and gate2.gate_type == 'cx' and gate3.gate_type == 'h'
+
+            if active_gates and is_h_cx_h:
+                # Check if Hadamards are on the target qubit of the CNOT
+                h_qubit = gate1.qubits[0]
+                cx_target = gate2.target_qubits[0]
+                
+                if gate1.qubits == gate3.qubits and h_qubit == cx_target:
+                    control, target = gate2.control_qubits[0], gate2.target_qubits[0]
+                    
+                    # Eliminate the H-CX-H sequence
+                    gate1.is_eliminated = True
+                    gate2.is_eliminated = True
+                    gate3.is_eliminated = True
+                    
+                    # Insert a new CNOT with reversed direction
+                    new_qubits = [target, control] # Reversed
+                    new_gate = QuantumGate("cx", new_qubits, [target], [control], gate2.line_number, "")
+                    self.gates.insert(i + 3, new_gate)
+
+                    self.stats.gate_cancellations += 2 # Net reduction of 2 gates
+                    self.debug_print(f"Reversed CNOT direction for {control},{target} using H-CX-H rule")
+                    i += 4
+                    continue
+            i += 1
+
     
     def _optimize_multiplication_patterns(self):
         for i, gate1 in enumerate(self.gates):
@@ -303,6 +430,20 @@ class QuantumCircuitOptimizer:
                         self.stats.gate_cancellations += 1
                         self.debug_print(f"Cancelled distant identical CCX gates: {gate1.qubits}")
                         break
+
+
+    def _reconstruct_gate_line(self, gate: QuantumGate) -> str:
+        """Reconstructs the MLIR line from a QuantumGate object."""
+        qubit_str = ", ".join(gate.qubits)
+        if gate.gate_type == "cx":
+            # Special format for CX
+            return f"q.cx {gate.control_qubits[0]}, {gate.target_qubits[0]}"
+        elif gate.gate_type == "ccx":
+            # Special format for CCX
+            return f"q.ccx {gate.control_qubits[0]}, {gate.control_qubits[1]}, {gate.target_qubits[0]}"
+        else:
+            # Generic format for other gates
+            return f"q.{gate.gate_type} {qubit_str}"
     
     def _generate_optimized_mlir(self) -> str:
         lines = [
@@ -336,7 +477,16 @@ class QuantumCircuitOptimizer:
         
         for gate in self.gates:
             if not gate.is_eliminated:
-                lines.append(f"    {gate.original_line.strip()}")
+                # IMPORTANT: Reconstruct the line instead of using original_line
+                # This handles newly created or modified gates correctly.
+                if gate.original_line and not gate.original_line.strip().startswith("q."):
+                    # It's a newly inserted gate, reconstruct it.
+                    line = self._reconstruct_gate_line(gate)
+                elif gate.original_line: # It's an original gate that survived
+                    line = gate.original_line.strip()
+                else: # Failsafe reconstruction
+                    line = self._reconstruct_gate_line(gate)
+                lines.append(f"    {line}")
         
         for result_reg, measured_reg in self.measurements:
             measured_base = measured_reg.split('[')[0] if '[' in measured_reg else measured_reg
