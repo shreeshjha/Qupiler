@@ -1,9 +1,0 @@
-{
-  "quantum_result": 0,
-  "expected_result": 0,
-  "accuracy": "PERFECT",
-  "operations_count": 24,
-  "circuit_depth": 9,
-  "gate_count": 28,
-  "qubit_count": 36
-}

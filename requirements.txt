@@ -1,0 +1,27 @@
+# Python requirements for Quantum MLIR Benchmarking
+# Install with: pip install -r requirements.txt
+
+# Core data analysis
+pandas>=1.3.0
+numpy>=1.20.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# System monitoring
+psutil>=5.8.0
+
+# Configuration
+PyYAML>=6.0
+
+# Optional: Quantum computing (for circuit validation)
+qiskit>=0.45.0
+qiskit-aer>=0.12.0
+
+# Optional: Advanced plotting
+plotly>=5.0.0
+
+# Optional: Jupyter notebook support
+jupyter>=1.0.0
+ipywidgets>=7.6.0
