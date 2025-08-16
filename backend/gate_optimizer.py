@@ -451,10 +451,35 @@ class FixedUniversalGateOptimizer:
         # ========== BIT 2: Full Adder ==========
         gates.append(self._create_gate_op("comment", [], "Bit 2: Full adder"))
         
-        # NAIVE STEP 2: Add another redundant pair between bit processing.
-        gates.append(self._create_gate_op("comment", [], "NAIVE STEP: Redundant gate pair on result[2]"))
+        # NAIVE STEP 2: Add redundant quantum gates for optimization testing
+        gates.append(self._create_gate_op("comment", [], "NAIVE STEP: Redundant quantum gates for optimization testing"))
         gates.append(self._create_gate_op("h", [f"{result_reg}[2]"], "Useless Hadamard gate"))
         gates.append(self._create_gate_op("h", [f"{result_reg}[2]"], "Cancels previous Hadamard"))
+        
+        # Add T gates (T^8 = I, so 8 T gates should cancel) - on result register so they affect measurement
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 1"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 2"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 3"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 4"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 5"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 6"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 7"))
+        gates.append(self._create_gate_op("t", [f"{result_reg}[1]"], "T gate 8"))
+        
+        # Add S gates (S^4 = I, so 4 S gates should cancel) - on result register  
+        gates.append(self._create_gate_op("s", [f"{result_reg}[0]"], "S gate 1"))
+        gates.append(self._create_gate_op("s", [f"{result_reg}[0]"], "S gate 2")) 
+        gates.append(self._create_gate_op("s", [f"{result_reg}[0]"], "S gate 3"))
+        gates.append(self._create_gate_op("s", [f"{result_reg}[0]"], "S gate 4"))
+        
+        # Add Z gates (Z^2 = I, so 2 Z gates should cancel) - on result register
+        gates.append(self._create_gate_op("z", [f"{result_reg}[3]"], "Z gate 1"))
+        gates.append(self._create_gate_op("z", [f"{result_reg}[3]"], "Z gate 2"))
+        
+        # Add H-X-H pattern that should be optimized to Z - on result register
+        gates.append(self._create_gate_op("h", [f"{result_reg}[0]"], "H gate for HXH->Z optimization"))
+        gates.append(self._create_gate_op("x", [f"{result_reg}[0]"], "X gate for HXH->Z optimization"))
+        gates.append(self._create_gate_op("h", [f"{result_reg}[0]"], "H gate for HXH->Z optimization"))
 
         # Step 1: Partial sum = a[2] ⊕ b[2]
         temp_sum2 = f"%q{temp_base + 4}"
@@ -1575,7 +1600,7 @@ class FixedUniversalGateOptimizer:
             elif op.op_type == "measure":
                 opt_note = f"  // {op.optimization_applied}" if op.optimization_applied else ""
                 lines.append(f"    {op.result} = q.measure {op.operands[0]} : !qreg -> i32{opt_note}")
-            elif op.op_type in ["cx", "ccx", "x", "swap", "reset"]:
+            elif op.op_type in ["cx", "ccx", "x", "swap", "reset", "h", "t", "s", "z", "y", "rx", "ry", "rz"]:
 
                 operands_str = ", ".join(op.operands)
                 opt_note = f"  // {op.optimization_applied}" if op.optimization_applied else ""

@@ -61,10 +61,15 @@ echo "5) gate_optimizer"
 python3 ../backend/gate_optimizer.py \
       "$BASE"_gate.mlir "$BASE"_gate_opt.mlir
 
-# MODIFIED Step 6: gate-opt MLIR → circuit.py (now uses expected_res.txt)
+# NEW Step 5.5: Enhanced quantum gate optimizations
+echo "5.5) enhanced_optimizer (new quantum optimizations)"
+python3 ../backend/optimizer.py \
+      "$BASE"_gate_opt.mlir "$BASE"_enhanced_opt.mlir
+
+# MODIFIED Step 6: enhanced-opt MLIR → circuit.py (now uses expected_res.txt)
 echo "6) circuit_generator (with correct expected result)"
 python3 ../backend/circuit_generator2.py \
-      "$BASE"_gate_opt.mlir circuit.py expected_res.txt
+      "$BASE"_enhanced_opt.mlir circuit.py expected_res.txt
 
 echo
 echo "✅ Done! Generated:"
@@ -73,6 +78,7 @@ echo " • $BASE.mlir"
 echo " • $BASE_opt.mlir"
 echo " • $BASE_gate.mlir"
 echo " • $BASE_gate_opt.mlir"
+echo " • $BASE_enhanced_opt.mlir"
 echo " • expected_res.txt (expected result: $(cat expected_res.txt 2>/dev/null || echo 'N/A'))"
 echo " • circuit.py"
 

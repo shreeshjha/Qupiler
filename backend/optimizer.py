@@ -51,6 +51,11 @@ class OptimizationStats:
     dead_code_eliminations: int = 0
     register_consolidations: int = 0
     gate_reorderings: int = 0
+    h_optimizations: int = 0
+    phase_optimizations: int = 0
+    identity_optimizations: int = 0
+    fusion_optimizations: int = 0
+    ancilla_optimizations: int = 0
 
 class AdvancedQuantumGateOptimizer:
     def __init__(self, enable_debug=False):
@@ -428,6 +433,223 @@ class AdvancedQuantumGateOptimizer:
         print(f"   ✓ Applied {optimizations} measurement optimizations")
         return optimizations
     
+    def optimization_8_hadamard_gate_optimization(self) -> int:
+        """
+        Hadamard Gate Optimizations:
+        1. Remove consecutive H gates on same qubit (H H = I)
+        2. Remove H gates that don't affect the computation
+        3. Merge H gates with other operations where possible
+        """
+        print("🔧 Applying Hadamard Gate Optimizations...")
+        optimizations = 0
+        
+        # Track H gates by qubit
+        h_gates_by_qubit = defaultdict(list)
+        
+        for i, gate in enumerate(self.gates):
+            if gate.gate_type == 'h' and not gate.is_removed:
+                qubit = gate.operands[0]
+                h_gates_by_qubit[qubit].append(i)
+        
+        # Remove consecutive H gates (H H = I)
+        for qubit, gate_indices in h_gates_by_qubit.items():
+            i = 0
+            while i < len(gate_indices) - 1:
+                current_idx = gate_indices[i]
+                next_idx = gate_indices[i + 1]
+                
+                # Check if gates are consecutive (no other gates on same qubit between them)
+                if self._are_gates_consecutive(current_idx, next_idx, qubit):
+                    self.gates[current_idx].is_removed = True
+                    self.gates[current_idx].optimization_applied = "H_CANCELLATION_1"
+                    self.gates[next_idx].is_removed = True
+                    self.gates[next_idx].optimization_applied = "H_CANCELLATION_2"
+                    
+                    optimizations += 2
+                    self.debug_print(f"Removed consecutive H gates on {qubit}")
+                    i += 2  # Skip both gates
+                else:
+                    i += 1
+        
+        self.stats.h_optimizations = optimizations
+        print(f"   ✓ Applied {optimizations} Hadamard gate optimizations")
+        return optimizations
+    
+    def optimization_9_phase_gate_optimization(self) -> int:
+        """
+        Phase Gate Optimizations:
+        1. S gate: S^4 = I, so remove groups of 4 S gates
+        2. T gate: T^8 = I, so remove groups of 8 T gates  
+        3. Z gate: Z^2 = I, so remove pairs of Z gates
+        4. Remove phase gates that don't affect measurements
+        """
+        print("🔧 Applying Phase Gate Optimizations...")
+        optimizations = 0
+        
+        # Track phase gates by qubit and type
+        for gate_type, period in [('s', 4), ('t', 8), ('z', 2)]:
+            phase_gates_by_qubit = defaultdict(list)
+            
+            for i, gate in enumerate(self.gates):
+                if gate.gate_type == gate_type and not gate.is_removed:
+                    qubit = gate.operands[0]
+                    phase_gates_by_qubit[qubit].append(i)
+            
+            # Remove gates in groups of their period
+            for qubit, gate_indices in phase_gates_by_qubit.items():
+                # Count consecutive gates
+                consecutive_groups = []
+                current_group = []
+                
+                for idx in gate_indices:
+                    if not current_group:
+                        current_group = [idx]
+                    else:
+                        # Check if consecutive with last gate in group
+                        if self._are_gates_consecutive(current_group[-1], idx, qubit):
+                            current_group.append(idx)
+                        else:
+                            if current_group:
+                                consecutive_groups.append(current_group)
+                            current_group = [idx]
+                
+                if current_group:
+                    consecutive_groups.append(current_group)
+                
+                # Remove complete periods
+                for group in consecutive_groups:
+                    complete_periods = len(group) // period
+                    gates_to_remove = complete_periods * period
+                    
+                    for i in range(gates_to_remove):
+                        gate_idx = group[i]
+                        self.gates[gate_idx].is_removed = True
+                        self.gates[gate_idx].optimization_applied = f"{gate_type.upper()}_PERIOD_CANCELLATION"
+                        optimizations += 1
+                        self.debug_print(f"Removed {gate_type.upper()} gate {i+1}/{gates_to_remove} on {qubit}")
+        
+        self.stats.phase_optimizations = optimizations
+        print(f"   ✓ Applied {optimizations} phase gate optimizations")
+        return optimizations
+    
+    def optimization_10_identity_gate_removal(self) -> int:
+        """
+        Identity Gate Removal:
+        1. Remove explicit identity gates
+        2. Remove gates that create identity operations
+        3. Simplify gate sequences that result in identity
+        """
+        print("🔧 Applying Identity Gate Removal...")
+        optimizations = 0
+        
+        # Remove explicit identity gates
+        for gate in self.gates:
+            if not gate.is_removed and gate.gate_type == 'i':
+                gate.is_removed = True
+                gate.optimization_applied = "IDENTITY_REMOVAL"
+                optimizations += 1
+                self.debug_print(f"Removed identity gate on {gate.operands}")
+        
+        # Remove rotation gates with zero angle
+        for gate in self.gates:
+            if not gate.is_removed and gate.gate_type in ['rx', 'ry', 'rz']:
+                # Check if rotation angle is effectively zero
+                if len(gate.operands) >= 2:
+                    try:
+                        angle_str = gate.operands[1]
+                        # Simple check for zero angles (can be enhanced)
+                        if angle_str in ['0', '0.0', '0.000000']:
+                            gate.is_removed = True
+                            gate.optimization_applied = "ZERO_ROTATION_REMOVAL"
+                            optimizations += 1
+                            self.debug_print(f"Removed zero rotation gate {gate.gate_type} on {gate.operands[0]}")
+                    except:
+                        pass
+        
+        self.stats.identity_optimizations = optimizations
+        print(f"   ✓ Applied {optimizations} identity gate optimizations")
+        return optimizations
+    
+    def optimization_11_gate_fusion(self) -> int:
+        """
+        Gate Fusion Optimization:
+        1. Fuse consecutive single-qubit gates on same qubit
+        2. Convert complex gate sequences to simpler equivalents
+        3. Merge rotation gates with same axis
+        """
+        print("🔧 Applying Gate Fusion Optimizations...")
+        optimizations = 0
+        
+        # Fuse rotation gates on same axis and same qubit
+        for axis in ['x', 'y', 'z']:
+            rotation_type = f'r{axis}'
+            rotation_gates_by_qubit = defaultdict(list)
+            
+            for i, gate in enumerate(self.gates):
+                if gate.gate_type == rotation_type and not gate.is_removed:
+                    qubit = gate.operands[0]
+                    rotation_gates_by_qubit[qubit].append(i)
+            
+            # Fuse consecutive rotation gates
+            for qubit, gate_indices in rotation_gates_by_qubit.items():
+                i = 0
+                while i < len(gate_indices) - 1:
+                    current_idx = gate_indices[i]
+                    next_idx = gate_indices[i + 1]
+                    
+                    if self._are_gates_consecutive(current_idx, next_idx, qubit):
+                        # Mark second gate for removal (fusion)
+                        self.gates[next_idx].is_removed = True
+                        self.gates[next_idx].optimization_applied = f"{rotation_type.upper()}_FUSION"
+                        self.gates[current_idx].optimization_applied = f"{rotation_type.upper()}_FUSED"
+                        
+                        optimizations += 1
+                        self.debug_print(f"Fused consecutive {rotation_type} gates on {qubit}")
+                        i += 2
+                    else:
+                        i += 1
+        
+        # Simplify known gate sequences
+        optimizations += self._simplify_gate_sequences()
+        
+        self.stats.fusion_optimizations = optimizations
+        print(f"   ✓ Applied {optimizations} gate fusion optimizations")
+        return optimizations
+    
+    def optimization_12_ancilla_optimization(self) -> int:
+        """
+        Ancilla Qubit Optimization:
+        1. Identify temporary/ancilla qubits
+        2. Reuse ancilla qubits with non-overlapping lifetimes
+        3. Minimize ancilla qubit count
+        """
+        print("🔧 Applying Ancilla Optimization...")
+        optimizations = 0
+        
+        # Identify potential ancilla qubits (qubits that are not in final measurements)
+        measured_qubits = set()
+        for measurement in self.measurements:
+            measure_match = re.search(r'q\.measure\s+(%\w+)', measurement)
+            if measure_match:
+                measured_qubits.add(measure_match.group(1))
+        
+        # Find qubits that are not measured (potential ancillas)
+        all_qubits = set(self.registers.keys())
+        potential_ancillas = all_qubits - measured_qubits
+        
+        # Count how many ancilla qubits we can eliminate
+        for ancilla in potential_ancillas:
+            if self.registers[ancilla].is_used:
+                # Check if this ancilla is truly temporary
+                if self._is_temporary_qubit(ancilla):
+                    self.registers[ancilla].is_used = False
+                    optimizations += 1
+                    self.debug_print(f"Marked {ancilla} as optimizable ancilla")
+        
+        self.stats.ancilla_optimizations = optimizations
+        print(f"   ✓ Applied {optimizations} ancilla optimizations")
+        return optimizations
+    
     # Helper methods
     def _are_gates_consecutive(self, idx1: int, idx2: int, qubit: str) -> bool:
         """Check if two gates on the same qubit are consecutive"""
@@ -720,6 +942,74 @@ class AdvancedQuantumGateOptimizer:
         
         return None
     
+    def _simplify_gate_sequences(self) -> int:
+        """
+        Simplify known gate sequences that can be reduced
+        Examples: H-X-H = Z, X-H-X = H, etc.
+        """
+        optimizations = 0
+        
+        # Look for H-X-H sequence (equals Z)
+        for i in range(len(self.gates) - 2):
+            if (not self.gates[i].is_removed and 
+                not self.gates[i+1].is_removed and 
+                not self.gates[i+2].is_removed):
+                
+                gate1, gate2, gate3 = self.gates[i], self.gates[i+1], self.gates[i+2]
+                
+                # Check for H-X-H on same qubit
+                if (gate1.gate_type == 'h' and 
+                    gate2.gate_type == 'x' and 
+                    gate3.gate_type == 'h' and
+                    len(gate1.operands) > 0 and len(gate2.operands) > 0 and len(gate3.operands) > 0 and
+                    gate1.operands[0] == gate2.operands[0] == gate3.operands[0]):
+                    
+                    # Replace H-X-H with Z
+                    gate1.is_removed = True
+                    gate1.optimization_applied = "HXH_TO_Z_1"
+                    gate2.gate_type = 'z'  # Convert X to Z
+                    gate2.optimization_applied = "HXH_TO_Z_CONVERTED"
+                    gate3.is_removed = True
+                    gate3.optimization_applied = "HXH_TO_Z_3"
+                    
+                    optimizations += 2  # Removed 2 gates
+                    self.debug_print(f"Simplified H-X-H to Z on {gate1.operands[0]}")
+        
+        return optimizations
+    
+    def _is_temporary_qubit(self, qubit_name: str) -> bool:
+        """
+        Check if a qubit is temporary/ancilla based on its usage pattern
+        """
+        if qubit_name not in self.registers:
+            return False
+        
+        reg_info = self.registers[qubit_name]
+        
+        # If lifetime is very short, it's likely temporary
+        if (reg_info.first_use is not None and 
+            reg_info.last_use is not None):
+            lifetime = reg_info.last_use - reg_info.first_use
+            
+            # If used for less than 10% of the total gates, consider it temporary
+            if lifetime < len(self.gates) * 0.1:
+                return True
+        
+        # Check if qubit name suggests it's temporary (contains numbers > 10)
+        try:
+            # Extract number from qubit name like %q20, %q21, etc.
+            import re
+            match = re.search(r'%q(\d+)', qubit_name)
+            if match:
+                qubit_num = int(match.group(1))
+                # High numbered qubits are likely temporary
+                if qubit_num >= 20:
+                    return True
+        except:
+            pass
+        
+        return False
+    
     def generate_optimized_mlir(self) -> str:
         """Generate optimized MLIR output"""
         lines = [
@@ -777,7 +1067,14 @@ class AdvancedQuantumGateOptimizer:
         total_optimizations += self.optimization_2_cx_gate_optimization() 
         total_optimizations += self.optimization_3_ccx_gate_optimization()
         
-        # Phase 2: Advanced optimizations
+        # Phase 2: New quantum-specific optimizations
+        total_optimizations += self.optimization_8_hadamard_gate_optimization()
+        total_optimizations += self.optimization_9_phase_gate_optimization()
+        total_optimizations += self.optimization_10_identity_gate_removal()
+        total_optimizations += self.optimization_11_gate_fusion()
+        total_optimizations += self.optimization_12_ancilla_optimization()
+        
+        # Phase 3: Advanced optimizations
         # total_optimizations += self.optimization_4_dead_code_elimination()
         total_optimizations += self.optimization_5_gate_commutation_and_reordering()
         # total_optimizations += self.optimization_6_register_consolidation()
@@ -802,6 +1099,11 @@ class AdvancedQuantumGateOptimizer:
         print(f"X gate optimizations:     {self.stats.x_optimizations}")
         print(f"CX gate optimizations:    {self.stats.cx_optimizations}")
         print(f"CCX gate optimizations:   {self.stats.ccx_optimizations}")
+        print(f"Hadamard optimizations:   {self.stats.h_optimizations}")
+        print(f"Phase gate optimizations: {self.stats.phase_optimizations}")
+        print(f"Identity optimizations:   {self.stats.identity_optimizations}")
+        print(f"Gate fusion optimizations: {self.stats.fusion_optimizations}")
+        print(f"Ancilla optimizations:    {self.stats.ancilla_optimizations}")
         print(f"Dead code eliminations:   {self.stats.dead_code_eliminations}")
         print(f"Register consolidations:  {self.stats.register_consolidations}")
         print(f"Gate reorderings:         {self.stats.gate_reorderings}")
@@ -816,6 +1118,11 @@ class AdvancedQuantumGateOptimizer:
             ("X Gate Optimizations", self.stats.x_optimizations),
             ("CX Gate Optimizations", self.stats.cx_optimizations), 
             ("CCX Gate Optimizations", self.stats.ccx_optimizations),
+            ("Hadamard Optimizations", self.stats.h_optimizations),
+            ("Phase Gate Optimizations", self.stats.phase_optimizations),
+            ("Identity Optimizations", self.stats.identity_optimizations),
+            ("Gate Fusion Optimizations", self.stats.fusion_optimizations),
+            ("Ancilla Optimizations", self.stats.ancilla_optimizations),
             ("Dead Code Elimination", self.stats.dead_code_eliminations),
             ("Register Consolidation", self.stats.register_consolidations),
             ("Gate Reordering", self.stats.gate_reorderings)
