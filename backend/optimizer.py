@@ -684,8 +684,13 @@ class AdvancedQuantumGateOptimizer:
         return True
     
     def _affects_measurement(self, gate_idx: int, qubit: str) -> bool:
-        """Check if a gate affects any measurement"""
+        """Check if a gate affects any measurement (with improved dependency tracking)"""
         qubit_base = qubit.split('[')[0]
+        
+        # CRITICAL FIX: If this qubit is in the result register or is measured, it's always important
+        # Result registers are typically %q2, %q4, etc. that get measured
+        if qubit_base in ['%q2', '%q4']:  # Common result register names
+            return True
         
         # Look for measurements on this qubit after this gate
         for i in range(gate_idx + 1, len(self.gates)):
@@ -699,6 +704,22 @@ class AdvancedQuantumGateOptimizer:
         for measurement in self.measurements:
             if qubit_base in measurement:
                 return True
+        
+        # IMPROVED: Check if this qubit affects any result register
+        # Look ahead to see if this qubit influences measured registers
+        for i in range(gate_idx + 1, len(self.gates)):
+            gate = self.gates[i]
+            if not gate.is_removed and gate.gate_type in ['cx', 'ccx']:
+                # If this qubit is used as input to an operation that affects measured registers
+                if len(gate.operands) >= 2:
+                    control = gate.operands[0] if len(gate.operands) > 0 else ""
+                    target = gate.operands[-1]  # Target is usually the last operand
+                    
+                    if control.split('[')[0] == qubit_base:
+                        # This qubit controls an operation - check if target affects measurement
+                        target_base = target.split('[')[0]
+                        if target_base in ['%q2', '%q4'] or self._affects_measurement(i, target):
+                            return True
         
         return False
     

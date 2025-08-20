@@ -29,10 +29,27 @@ class FixedUniversalGateOptimizer:
         self.operations: List[QuantumOperation] = []
         self.optimizations_applied = []
         self.original_content = ""
+        self.next_register_id = 20  # Start at 20, increment for each operation to avoid reuse
         
     def debug_print(self, message: str):
         if self.enable_debug:
             print(f"[DEBUG] {message}")
+    
+    def allocate_register_range(self, num_registers: int) -> int:
+        """
+        Allocate a unique range of register IDs for an operation.
+        Returns the base register ID, reserves num_registers consecutive IDs.
+        
+        Args:
+            num_registers: Number of consecutive register IDs needed
+            
+        Returns:
+            base_id: The starting register ID (caller uses base_id, base_id+1, ..., base_id+num_registers-1)
+        """
+        base_id = self.next_register_id
+        self.next_register_id += num_registers
+        self.debug_print(f"Allocated register range: %q{base_id} to %q{self.next_register_id-1}")
+        return base_id
             
     def parse_mlir(self, content: str) -> None:
         """Parse MLIR content - handles ALL gate-level operations"""
@@ -388,7 +405,8 @@ class FixedUniversalGateOptimizer:
 
         # We need temporary qubits for carry bits
         # carry[0] = carry into bit 1, carry[1] = carry into bit 2, etc.
-        temp_base = 20  # Use high-numbered temporary registers
+        # FIXED: Use unique register allocation to avoid reuse between operations
+        temp_base = self.allocate_register_range(8)  # Reserve 8 registers for addition temps
         carry_reg = f"%q{temp_base}"
         
         gates.append(self._create_gate_op("comment", [], "Allocate carry registers"))
@@ -545,7 +563,8 @@ class FixedUniversalGateOptimizer:
         gates.append(self._create_gate_op("comment", [], f"Computing: {a_reg} - {b_reg} -> {result_reg}"))
         
         # Working registers for two's complement subtraction
-        temp_base = 20
+        # FIXED: Use unique register allocation to avoid reuse between operations
+        temp_base = self.allocate_register_range(8)  # Reserve 8 registers for subtraction temps
         b_complement = f"%q{temp_base}"      # B' (one's complement of B)
         carry_chain = f"%q{temp_base + 1}"   # Carry propagation chain
         
@@ -663,7 +682,8 @@ class FixedUniversalGateOptimizer:
         gates.append(self._create_gate_op("comment", [], "=== CORRECT 4-BIT MULTIPLICATION (NAIVE) ==="))
         
         # Minimal temporary registers for partial products
-        temp_base = 20
+        # FIXED: Use unique register allocation to avoid reuse between operations
+        temp_base = self.allocate_register_range(8)  # Reserve 8 registers for multiplication temps
         
         # NAIVE STEP 1: Add a redundant CX pair on input registers before computation starts.
         gates.append(self._create_gate_op("comment", [], "NAIVE STEP: Redundant CX pair on input registers"))
