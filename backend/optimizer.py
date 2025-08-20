@@ -1010,6 +1010,32 @@ class AdvancedQuantumGateOptimizer:
         
         return False
     
+    def _find_result_register_from_gates(self, active_gates) -> Optional[str]:
+        """Find the most likely result register from gate analysis"""
+        # In arithmetic circuits, the result is typically the register that receives
+        # the most gate outputs (target register)
+        target_counts = defaultdict(int)
+        
+        for gate in active_gates:
+            if gate.gate_type in ['ccx', 'cx'] and len(gate.operands) >= 2:
+                # Last operand is typically the target
+                target_reg = gate.operands[-1].split('[')[0]
+                target_counts[target_reg] += 1
+        
+        if target_counts:
+            # Return the register with most targeting operations
+            result_reg = max(target_counts.items(), key=lambda x: x[1])[0]
+            self.debug_print(f"Identified {result_reg} as result register (targets: {target_counts[result_reg]})")
+            return result_reg
+            
+        # Fallback: look for %q2 (common result register)
+        for gate in active_gates:
+            for operand in gate.operands:
+                if operand.startswith('%q2'):
+                    return '%q2'
+        
+        return None
+    
     def generate_optimized_mlir(self) -> str:
         """Generate optimized MLIR output"""
         lines = [
@@ -1021,25 +1047,61 @@ class AdvancedQuantumGateOptimizer:
             '  "quantum.func"() ({'
         ]
         
-        # Add allocations
+        # CRITICAL FIX: Ensure all referenced qubits have allocations
+        active_gates = [gate for gate in self.gates if not gate.is_removed]
+        referenced_qubits = set()
+        
+        # Collect all qubits referenced in active gates
+        for gate in active_gates:
+            for operand in gate.operands:
+                qubit_name = operand.split('[')[0]  # Extract %q20 from %q20[0]
+                referenced_qubits.add(qubit_name)
+        
+        # Collect all qubits from existing allocations
+        existing_allocations = set()
+        for alloc in self.allocations:
+            alloc_match = re.search(r'%(\w+)\s*=\s*q\.alloc', alloc)
+            if alloc_match:
+                existing_allocations.add(f"%{alloc_match.group(1)}")
+        
+        # Generate missing allocations for referenced qubits
+        missing_allocations = referenced_qubits - existing_allocations
+        auto_generated_allocations = []
+        
+        for qubit in sorted(missing_allocations):
+            # Auto-generate single-qubit allocation for missing qubits
+            auto_generated_allocations.append(f"    {qubit} = q.alloc : !qreg<1>")
+            self.debug_print(f"Auto-generated allocation for {qubit}")
+        
+        # Add existing allocations first
         for alloc in self.allocations:
             lines.append(f"    {alloc}")
+        
+        # Add auto-generated allocations
+        for alloc in auto_generated_allocations:
+            lines.append(alloc)
         
         # Add initializations
         for init in self.initializations:
             lines.append(f"    {init}")
         
         # Add optimized gates
-        active_gates = [gate for gate in self.gates if not gate.is_removed]
-        
         for gate in active_gates:
             optimization_note = f"  // {gate.optimization_applied}" if gate.optimization_applied else ""
             operands_str = ", ".join(gate.operands)
             lines.append(f"    q.{gate.gate_type} {operands_str}{optimization_note}")
         
-        # Add measurements
+        # Add measurements (existing ones first)
         for measurement in self.measurements:
             lines.append(f"    {measurement}")
+        
+        # CRITICAL FIX: Auto-generate measurements for result qubits if none exist
+        if not self.measurements:
+            # Find the result register (typically %q2 in arithmetic circuits)
+            result_register = self._find_result_register_from_gates(active_gates)
+            if result_register:
+                lines.append(f"    %c_result = q.measure {result_register}")
+                self.debug_print(f"Auto-generated measurement for {result_register}")
         
         lines.extend([
             "    func.return",
