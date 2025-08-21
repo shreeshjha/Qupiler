@@ -527,6 +527,29 @@ class AdvancedQuantumGateOptimizer:
                         self.gates[gate_idx].optimization_applied = f"{gate_type.upper()}_PERIOD_CANCELLATION"
                         optimizations += 1
                         self.debug_print(f"Removed {gate_type.upper()} gate {i+1}/{gates_to_remove} on {qubit}")
+                    
+                    # Special case: S^2 → Z conversion
+                    if gate_type == 's' and len(group) >= 2:
+                        remaining_gates = len(group) % period  # Gates left after period cancellation
+                        if remaining_gates >= 2:
+                            # Convert pairs of remaining S gates to Z gates
+                            pairs_to_convert = remaining_gates // 2
+                            start_idx = gates_to_remove  # Start after the cancelled gates
+                            
+                            for pair in range(pairs_to_convert):
+                                first_idx = group[start_idx + pair * 2]
+                                second_idx = group[start_idx + pair * 2 + 1]
+                                
+                                # Convert first S gate to Z gate
+                                self.gates[first_idx].gate_type = 'z'
+                                self.gates[first_idx].optimization_applied = "S2_TO_Z_CONVERSION"
+                                
+                                # Remove second S gate
+                                self.gates[second_idx].is_removed = True
+                                self.gates[second_idx].optimization_applied = "S2_TO_Z_REMOVED"
+                                
+                                optimizations += 1
+                                self.debug_print(f"Converted S^2 to Z on {qubit}")
         
         self.stats.phase_optimizations = optimizations
         print(f"   ✓ Applied {optimizations} phase gate optimizations")

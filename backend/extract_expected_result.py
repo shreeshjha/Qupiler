@@ -159,6 +159,10 @@ class MLIRExpectedResultExtractor:
                         result = (val1 | val2) & 0xF  # Bitwise OR
                     elif op['operation'] == 'xor':
                         result = (val1 ^ val2) & 0xF
+                    elif op['operation'] == 'shl':
+                        result = (val1 << val2) & 0xF  # Left shift
+                    elif op['operation'] == 'shr':
+                        result = (val1 >> val2) & 0xF  # Right shift
                     elif op['operation'] == 'gt':
                         result = 1 if val1 > val2 else 0
                     elif op['operation'] == 'lt':
