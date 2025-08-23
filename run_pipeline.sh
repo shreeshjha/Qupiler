@@ -29,12 +29,12 @@ clang -Xclang -ast-dump=json -fsyntax-only \
 
 # Step 2: AST JSON → raw MLIR
 echo "2) json_to_mlir"
-python3 ../backend/ast_json_to_mlir.py \
+python3 ../backend/core/ast_json_to_mlir.py \
       "$BASE.json" "$BASE.mlir"
 
 # NEW STEP 2.5: Extract expected result from high-level MLIR
 echo "2.5) extract_expected_result"
-python3 ../backend/extract_expected_result.py \
+python3 ../backend/generators/extract_expected_result.py \
       "$BASE.mlir" expected_res.txt
 
 # Show the extracted expected result
@@ -47,28 +47,28 @@ fi
 
 # Step 3: MLIR → optimized MLIR
 echo "3) mlir optimizer (--preserve-all)"
-python3 ../backend/quantum_mlir_optimization_script.py \
+python3 ../backend/optimizers/quantum_mlir_optimization_script.py \
       "$BASE.mlir" "$BASE"_opt.mlir \
       
 
 # Step 4: opt MLIR → gate MLIR
 echo "4) gate_converter"
-python3 ../backend/gate_converter.py \
+python3 ../backend/core/gate_converter.py \
       "$BASE"_opt.mlir "$BASE"_gate.mlir
 
 # Step 5: gate MLIR → optimized gate MLIR
 echo "5) gate_optimizer"
-python3 ../backend/gate_optimizer.py \
+python3 ../backend/optimizers/gate_optimizer.py \
       "$BASE"_gate.mlir "$BASE"_gate_opt.mlir
 
 # NEW Step 5.5: Enhanced quantum gate optimizations
 echo "5.5) enhanced_optimizer (new quantum optimizations)"
-python3 ../backend/optimizer.py \
+python3 ../backend/optimizers/optimizer.py \
       "$BASE"_gate_opt.mlir "$BASE"_enhanced_opt.mlir
 
 # MODIFIED Step 6: enhanced-opt MLIR → circuit.py (now uses expected_res.txt)
 echo "6) circuit_generator (with correct expected result)"
-python3 ../backend/circuit_generator2.py \
+python3 ../backend/generators/circuit_generator2.py \
       "$BASE"_enhanced_opt.mlir circuit.py expected_res.txt
 
 echo
