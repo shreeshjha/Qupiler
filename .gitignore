@@ -1,0 +1,4 @@
+
+# Exclude experiment documentation from repo
+docs/experiments/operation_chaining_issue_log.md
+docs/experiments/fix_plan.md
