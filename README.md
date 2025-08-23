@@ -15,7 +15,7 @@ The emergence of quantum computing as a transformative computational paradigm ne
 Qupiler implements a multi-stage compilation pipeline that transforms C programs through the following stages:
 
 ```
-C Program → AST JSON → High-Level MLIR → Gate-Level MLIR → Optimized MLIR → Executable Quantum Circuit
+C Program → AST JSON → High-Level MLIR → Expected Result Extraction → Optimized MLIR → Gate-Level MLIR → Gate-Optimized MLIR → Enhanced Optimized MLIR → Executable Quantum Circuit
 ```
 
 The system leverages MLIR (Multi-Level Intermediate Representation) as its core compilation infrastructure, enabling sophisticated optimization passes and maintaining type safety throughout the compilation process.
@@ -28,18 +28,16 @@ The Qupiler architecture comprises several interconnected modules:
 
 **Frontend Components:**
 - **AST Parser** (`backend/core/ast_json_to_mlir.py`): Converts Clang-generated AST JSON to quantum MLIR
-- **Classical-to-Quantum Translator** (`backend/core/classical_to_quantum_translator.py`): Maps classical operations to quantum circuit equivalents
 - **Gate Converter** (`backend/core/gate_converter.py`): Transforms high-level operations to gate-level representations
 
 **Backend Optimization Engine:**
-- **Multi-Pass Optimizer** (`backend/optimizers/passes/`): Implements 12+ distinct optimization passes
-- **Circuit Generator** (`backend/generators/circuit_generator2.py`): Produces executable Qiskit-compatible code
-- **Metrics Analyzer** (`scripts/compare_mlir_metrics.py`): Quantifies optimization performance
+- **MLIR Optimizer** (`backend/optimizers/quantum_mlir_optimization_script.py`): High-level MLIR optimization passes
+- **Gate Optimizer** (`backend/optimizers/gate_optimizer.py`): Gate-level circuit optimizations
+- **Enhanced Optimizer** (`backend/optimizers/optimizer.py`): Advanced quantum gate optimizations
 
-**Utility Infrastructure:**
-- **Dialect Framework** (`backend/utils/dialect.cpp`): Quantum operation implementations
-- **MLIR Integration** (`backend/utils/utils.cpp`): Core MLIR functionality
-- **Testing Suite** (`tests/`): Comprehensive validation framework
+**Generator Components:**
+- **Expected Result Extractor** (`backend/generators/extract_expected_result.py`): Extracts expected results from high-level MLIR
+- **Circuit Generator** (`backend/generators/circuit_generator2.py`): Produces executable Qiskit-compatible code with validation
 
 ### 2.2 Project Structure
 
@@ -47,33 +45,18 @@ The Qupiler architecture comprises several interconnected modules:
 Qupiler/
 ├── backend/
 │   ├── core/                          # Core compilation components
-│   │   ├── ast_json_to_mlir.py        # AST-to-MLIR transformation (1,568 LoC)
-│   │   ├── classical_to_quantum_translator.py # Quantum circuit synthesis (826 LoC)
-│   │   ├── gate_converter.py          # Gate-level compilation (915 LoC)
-│   │   └── qmlir_ir.hpp               # QMLIR type definitions
+│   │   ├── ast_json_to_mlir.py        # AST-to-MLIR transformation
+│   │   └── gate_converter.py          # Gate-level compilation
 │   ├── optimizers/
-│   │   ├── passes/                    # Optimization pass implementations
-│   │   │   ├── ConstantFolding.cpp    # Compile-time evaluation
-│   │   │   ├── CommutativeCancellation.cpp # Gate reordering optimization
-│   │   │   ├── IdentityRemoval.cpp    # Redundant gate elimination
-│   │   │   ├── AncillaHoist.cpp       # Auxiliary qubit optimization
-│   │   │   └── [8+ additional passes]
-│   │   └── quantum_mlir_optimization_script.py # Pass orchestration
-│   ├── generators/
-│   │   ├── circuit_generator2.py      # Qiskit code generation
-│   │   └── extract_expected_result.py # Classical validation
-│   └── utils/
-│       ├── dialect.cpp                # Quantum arithmetic implementations
-│       └── utils.cpp                  # Core utilities
-├── scripts/
-│   ├── compare_mlir_metrics.py        # Performance analysis
-│   ├── qmlir_to_qiskits.py           # Circuit execution framework
-│   └── generate_metrics_visualizations.py # Research visualization
-├── tests/                             # Comprehensive test suite (14 cases)
-├── docs/                              # Research documentation
-└── tools/
-    ├── frontend/main.cpp              # MLIR-based frontend driver
-    └── optimization_test.cpp          # Standalone optimization testing
+│   │   ├── quantum_mlir_optimization_script.py # High-level MLIR optimization
+│   │   ├── gate_optimizer.py          # Gate-level optimization
+│   │   └── optimizer.py               # Enhanced quantum optimizations
+│   └── generators/
+│       ├── extract_expected_result.py # Expected result extraction
+│       └── circuit_generator2.py      # Qiskit code generation
+├── tests/                             # Comprehensive test suite
+├── docs/                              # Documentation and experiments
+└── scripts/                           # Analysis and utility scripts
 ```
 
 ## 3. Technical Contributions
@@ -219,47 +202,43 @@ void quantum_circuit() {
 }
 ```
 
-**Step 2: AST Generation**
+**Step 2: Complete Pipeline Execution**
 ```bash
-clang -Xclang -ast-dump=json -fsyntax-only program.c > program_ast.json
+# Execute the complete compilation pipeline
+./run_pipeline.sh tests/program.c
 ```
 
-**Step 3: MLIR Compilation**
-```bash
-# Using CMake build system
-mkdir build && cd build
-cmake -G Ninja ..
-ninja
+**Pipeline Steps (Automated):**
+1. **AST Generation**: `clang -Xclang -ast-dump=json -fsyntax-only program.c > program.json`
+2. **MLIR Generation**: `python backend/core/ast_json_to_mlir.py program.json program.mlir`
+3. **Expected Result Extraction**: `python backend/generators/extract_expected_result.py program.mlir expected_res.txt`
+4. **High-Level Optimization**: `python backend/optimizers/quantum_mlir_optimization_script.py program.mlir program_opt.mlir`
+5. **Gate Conversion**: `python backend/core/gate_converter.py program_opt.mlir program_gate.mlir`
+6. **Gate Optimization**: `python backend/optimizers/gate_optimizer.py program_gate.mlir program_gate_opt.mlir`
+7. **Enhanced Optimization**: `python backend/optimizers/optimizer.py program_gate_opt.mlir program_enhanced_opt.mlir`
+8. **Circuit Generation**: `python backend/generators/circuit_generator2.py program_enhanced_opt.mlir circuit.py expected_res.txt`
 
-# Direct IR generation
-./direct_ir_gen ../tests/program.c program.mlir
-```
-
-**Step 4: Optimization Application**
+**Step 3: Execute Quantum Circuit**
 ```bash
-python backend/quantum_mlir_optimization_script.py program.mlir program_optimized.mlir
-```
-
-**Step 5: Quantum Circuit Execution**
-```bash
-python scripts/qmlir_to_qiskits.py program_optimized.mlir program_executable.py
-python program_executable.py
+# Navigate to experiments directory and run the generated circuit
+cd experiments
+python circuit.py
 ```
 
 ### 6.2 Advanced Configuration
 
-**Build Configuration (CMakeLists.txt):**
-- MLIR/LLVM integration with Homebrew compatibility
-- Modular pass library architecture enabling custom optimization sequences
-- Frontend driver with comprehensive debugging capabilities
-- Automated testing infrastructure with performance metrics collection
+**Pipeline Configuration:**
+- Automated execution through `run_pipeline.sh`
+- Support for any C file in the tests directory
+- Expected result validation ensuring quantum circuit correctness
+- Comprehensive intermediate file generation for debugging
 
-**Optimization Pass Customization:**
+**Manual Component Execution:**
 ```bash
-# Custom pass ordering
-python backend/quantum_mlir_optimization_script.py \
-    --passes ConstantFolding,IdentityRemoval,CommutativeCancellation \
-    input.mlir output.mlir
+# Individual components can be run manually if needed
+python backend/optimizers/quantum_mlir_optimization_script.py input.mlir output.mlir
+python backend/optimizers/gate_optimizer.py input_gate.mlir output_gate.mlir
+python backend/optimizers/optimizer.py input_enhanced.mlir output_enhanced.mlir
 ```
 
 ## 7. Future Research Directions
