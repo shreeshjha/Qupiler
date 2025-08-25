@@ -139,7 +139,7 @@ Across the complete test suite, Qupiler demonstrates:
 ```
 Metric                    | Original | Optimized | Reduction | Improvement
 --------------------------|----------|-----------|-----------|-------------
-Average Circuit Depth    | 31.8     | 22.8      | 9.0       | 28.3%
+Average Circuit Depth     | 31.8     | 22.8      | 9.0       | 28.3%
 Average Gate Count        | 58.0     | 32.1      | 25.9      | 44.6%
 Average Circuit Width     | 22.9     | 22.9      | 0.0       | 0.0%
 T-Gate Count (Critical)   | 6.2      | 4.5       | 1.7       | 27.6%
