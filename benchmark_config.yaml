@@ -1,0 +1,51 @@
+# Quantum MLIR Benchmark Configuration
+# benchmark_config.yaml
+
+# Test cases configuration
+tests: "tests"  # Directory containing your C test files
+output_dir: "benchmark_results"  # Where to save results
+
+# Pipeline scripts - adjust paths if needed
+pipeline_scripts:
+  ast_to_mlir: "backend/ast_json_to_mlir.py"
+  gate_converter: "backend/gate_converter.py" 
+  gate_decomposer: "backend/gate_optimizer2.py"
+  gate_optimizer: "backend/optimizer.py"
+  circuit_generator: "backend/circuit_generator.py"
+
+# Metrics collection settings
+metrics:
+  enable_memory_profiling: true
+  enable_timing: true
+  enable_circuit_analysis: true
+  detailed_gate_analysis: true
+  
+# Visualization settings
+visualization:
+  generate_plots: true
+  plot_format: "png"  # png, pdf, svg
+  plot_dpi: 300
+  style: "seaborn-v0_8"  # matplotlib style
+  
+# Test execution settings
+execution:
+  timeout_seconds: 300  # Max time per test case
+  retry_failed: false
+  parallel_execution: false  # Set to true for faster execution
+  
+# Custom metrics (optional)
+custom_metrics:
+  # Track specific gate types
+  track_hadamard_gates: false
+  track_rotation_gates: false
+  
+  # Performance thresholds
+  max_compilation_time: 60.0  # seconds
+  max_memory_usage: 1000.0    # MB
+  
+# Reporting settings
+reporting:
+  include_detailed_logs: true
+  generate_summary_table: true
+  export_to_csv: true
+  export_to_json: true
