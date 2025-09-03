@@ -90,7 +90,7 @@ def create_gate_count_reduction_chart():
     
     plt.tight_layout()
     plt.savefig('gate_count_reduction_analysis.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 def create_gate_specific_optimization_chart():
     """Create gate-specific optimization performance radar chart"""
@@ -132,8 +132,61 @@ def create_gate_specific_optimization_chart():
     
     plt.tight_layout()
     plt.savefig('gate_specific_optimization_analysis.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
+# def create_fault_tolerant_impact_chart():
+#     """Create T-gate optimization impact chart for fault-tolerant quantum computing"""
+#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+#     # T-gate specific data from multiplication/division operations
+#     t_gate_operations = ['Dynamic Division', 'Realistic Division', 'Dynamic Multiplication', 
+#                         'Multi-Test', 'Realistic Multiplication']
+#     t_gate_original = [15, 15, 19, 19, 19]
+#     t_gate_optimized = [15, 15, 11, 11, 11]
+#     t_gate_reduction = [0, 0, 42.1, 42.1, 42.1]
+    
+#     # Left: T-gate count before/after
+#     x = np.arange(len(t_gate_operations))
+#     width = 0.35
+    
+#     bars1 = ax1.bar(x - width/2, t_gate_original, width, 
+#                    label='Original T-Gates', color='#9b59b6', alpha=0.8)
+#     bars2 = ax1.bar(x + width/2, t_gate_optimized, width,
+#                    label='Optimized T-Gates', color='#8e44ad', alpha=0.8)
+    
+#     ax1.set_xlabel('Operation Type', fontsize=12, weight='bold')
+#     ax1.set_ylabel('T-Gate Count', fontsize=12, weight='bold')
+#     ax1.set_title('T-Gate Optimization Impact (Fault-Tolerant Focus)', fontsize=14, weight='bold')
+#     ax1.set_xticks(x)
+#     ax1.set_xticklabels([op.replace(' ', '\n') for op in t_gate_operations], fontsize=9)
+#     ax1.legend()
+#     ax1.grid(True, alpha=0.3)
+    
+#     # Add reduction percentages
+#     for i, pct in enumerate(t_gate_reduction):
+#         if pct > 0:
+#             ax1.text(i, max(t_gate_original[i], t_gate_optimized[i]) + 0.5, 
+#                     f'{pct:.1f}%', ha='center', va='bottom', weight='bold', color='red')
+    
+#     # Right: Overall optimization summary
+#     summary_metrics = ['Gate Count', 'Circuit Depth', 'T-Gates', 'H-Gates', 'S-Gates', 'X-Gates']
+#     summary_values = [44.6, 28.3, 27.6, 100.0, 100.0, 65.9]
+#     colors = ['#3498db', '#e74c3c', '#9b59b6', '#f39c12', '#e67e22', '#2ecc71']
+    
+#     bars = ax2.barh(summary_metrics, summary_values, color=colors, alpha=0.8)
+#     ax2.set_xlabel('Optimization Percentage (%)', fontsize=12, weight='bold')
+#     ax2.set_title('Overall Qupiler Optimization Summary', fontsize=14, weight='bold')
+#     ax2.grid(True, alpha=0.3)
+    
+#     # Add percentage labels
+#     for bar, val in zip(bars, summary_values):
+#         width = bar.get_width()
+#         ax2.text(width + 1, bar.get_y() + bar.get_height()/2,
+#                 f'{val:.1f}%', ha='left', va='center', weight='bold')
+    
+#     plt.tight_layout()
+#     plt.savefig('fault_tolerant_impact_analysis.png', dpi=300, bbox_inches='tight')
+#     # plt.show()
 def create_fault_tolerant_impact_chart():
     """Create T-gate optimization impact chart for fault-tolerant quantum computing"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
@@ -168,10 +221,10 @@ def create_fault_tolerant_impact_chart():
             ax1.text(i, max(t_gate_original[i], t_gate_optimized[i]) + 0.5, 
                     f'{pct:.1f}%', ha='center', va='bottom', weight='bold', color='red')
     
-    # Right: Overall optimization summary
-    summary_metrics = ['Gate Count', 'Circuit Depth', 'T-Gates', 'H-Gates', 'S-Gates', 'X-Gates']
-    summary_values = [44.6, 28.3, 27.6, 100.0, 100.0, 65.9]
-    colors = ['#3498db', '#e74c3c', '#9b59b6', '#f39c12', '#e67e22', '#2ecc71']
+    # Right: Overall optimization summary (removed H-Gates and S-Gates)
+    summary_metrics = ['Gate Count', 'Circuit Depth', 'T-Gates', 'X-Gates']
+    summary_values = [44.6, 28.3, 27.6, 65.9]
+    colors = ['#3498db', '#e74c3c', '#9b59b6', '#2ecc71']
     
     bars = ax2.barh(summary_metrics, summary_values, color=colors, alpha=0.8)
     ax2.set_xlabel('Optimization Percentage (%)', fontsize=12, weight='bold')
@@ -186,7 +239,8 @@ def create_fault_tolerant_impact_chart():
     
     plt.tight_layout()
     plt.savefig('fault_tolerant_impact_analysis.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
+
 
 def create_multi_parameter_correlation():
     """Create multi-parameter correlation analysis"""
@@ -247,7 +301,87 @@ def create_multi_parameter_correlation():
     
     plt.tight_layout()
     plt.savefig('multi_parameter_correlation_analysis.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
+
+# def create_academic_summary_figure():
+#     """Create comprehensive academic summary figure"""
+#     fig = plt.figure(figsize=(20, 12))
+    
+#     # Create a 2x3 grid
+#     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+    
+#     # Main summary statistics
+#     ax_main = fig.add_subplot(gs[0, :])
+    
+#     metrics = ['Average Gate\nReduction', 'Average Depth\nReduction', 'H-Gate\nElimination', 
+#               'S-Gate\nElimination', 'X-Gate\nReduction', 'T-Gate\nOptimization']
+#     values = [44.6, 28.3, 100.0, 100.0, 65.9, 27.6]
+#     colors = ['#3498db', '#e74c3c', '#f39c12', '#e67e22', '#2ecc71', '#9b59b6']
+    
+#     bars = ax_main.bar(metrics, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
+#     ax_main.set_ylabel('Optimization Percentage (%)', fontsize=14, weight='bold')
+#     ax_main.set_title('Qupiler Quantum Circuit Optimization Summary (14 Test Cases)', 
+#                      fontsize=16, weight='bold', pad=20)
+#     ax_main.set_ylim(0, 110)
+#     ax_main.grid(True, alpha=0.3, axis='y')
+    
+#     # Add value labels on bars
+#     for bar, val in zip(bars, values):
+#         height = bar.get_height()
+#         ax_main.text(bar.get_x() + bar.get_width()/2., height + 1,
+#                     f'{val:.1f}%', ha='center', va='bottom', weight='bold', fontsize=12)
+    
+#     # Bottom left: Operation type breakdown
+#     ax1 = fig.add_subplot(gs[1, 0])
+#     df = pd.DataFrame(data)
+#     type_stats = df.groupby('operation_type')['gate_reduction_pct'].mean()
+    
+#     wedges, texts, autotexts = ax1.pie(type_stats.values, labels=type_stats.index, autopct='%1.1f%%',
+#                                       colors=['#3498db', '#e74c3c', '#f39c12', '#9b59b6'])
+#     ax1.set_title('Optimization by Operation Type', fontsize=12, weight='bold')
+    
+#     # Bottom middle: Gate count distribution
+#     ax2 = fig.add_subplot(gs[1, 1])
+#     ax2.hist([df['original_gates'], df['optimized_gates']], 
+#             bins=8, alpha=0.7, label=['Original', 'Optimized'],
+#             color=['#e74c3c', '#2ecc71'])
+#     ax2.set_xlabel('Gate Count', fontsize=10, weight='bold')
+#     ax2.set_ylabel('Frequency', fontsize=10, weight='bold')
+#     ax2.set_title('Gate Count Distribution', fontsize=12, weight='bold')
+#     ax2.legend()
+#     ax2.grid(True, alpha=0.3)
+    
+#     # Bottom right: Key statistics
+#     ax3 = fig.add_subplot(gs[1, 2])
+#     ax3.axis('off')
+    
+#     stats_text = f"""
+#     Key Statistics:
+    
+#     • Total Test Cases: 14
+#     • Average Gate Reduction: 44.6%
+#     • Average Depth Reduction: 28.3%
+#     • Circuit Width Preserved: 100%
+    
+#     Gate-Specific Results:
+#     • H-Gates: 100% eliminated
+#     • S-Gates: 100% eliminated  
+#     • X-Gates: 65.9% reduced
+#     • T-Gates: 27.6% reduced
+#     • CX-Gates: 12.7% reduced
+    
+#     Operation Coverage:
+#     • Arithmetic: 9 test cases
+#     • Bitwise: 2 test cases
+#     • Logic: 2 test cases
+#     • Chaining: 1 test case
+#     """
+    
+#     ax3.text(0.05, 0.95, stats_text, transform=ax3.transAxes, fontsize=11,
+#             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+    
+#     plt.savefig('qupiler_academic_summary.png', dpi=300, bbox_inches='tight')
+#     # plt.show()
 
 def create_academic_summary_figure():
     """Create comprehensive academic summary figure"""
@@ -256,13 +390,13 @@ def create_academic_summary_figure():
     # Create a 2x3 grid
     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
     
-    # Main summary statistics
+    # Main summary statistics (removed H-Gate and S-Gate)
     ax_main = fig.add_subplot(gs[0, :])
     
-    metrics = ['Average Gate\nReduction', 'Average Depth\nReduction', 'H-Gate\nElimination', 
-              'S-Gate\nElimination', 'X-Gate\nReduction', 'T-Gate\nOptimization']
-    values = [44.6, 28.3, 100.0, 100.0, 65.9, 27.6]
-    colors = ['#3498db', '#e74c3c', '#f39c12', '#e67e22', '#2ecc71', '#9b59b6']
+    metrics = ['Average Gate\nReduction', 'Average Depth\nReduction', 
+              'X-Gate\nReduction', 'T-Gate\nOptimization']
+    values = [44.6, 28.3, 65.9, 27.6]
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6']
     
     bars = ax_main.bar(metrics, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
     ax_main.set_ylabel('Optimization Percentage (%)', fontsize=14, weight='bold')
@@ -297,7 +431,7 @@ def create_academic_summary_figure():
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
-    # Bottom right: Key statistics
+    # Bottom right: Key statistics (removed H-Gates and S-Gates mentions)
     ax3 = fig.add_subplot(gs[1, 2])
     ax3.axis('off')
     
@@ -310,8 +444,6 @@ def create_academic_summary_figure():
     • Circuit Width Preserved: 100%
     
     Gate-Specific Results:
-    • H-Gates: 100% eliminated
-    • S-Gates: 100% eliminated  
     • X-Gates: 65.9% reduced
     • T-Gates: 27.6% reduced
     • CX-Gates: 12.7% reduced
@@ -327,7 +459,8 @@ def create_academic_summary_figure():
             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
     
     plt.savefig('qupiler_academic_summary.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
+
 
 def main():
     """Generate all academic visualizations"""
